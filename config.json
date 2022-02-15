@@ -1,0 +1,17 @@
+{
+  "default": {
+    "ws": {},
+    "wp": {
+      "max_offset": 90,
+      "trim": 0
+    }
+  },
+
+  "config": {
+    "ws": {},
+    "wp": {
+      "max_offset": 90,
+      "trim": 0
+    }
+  }
+}
