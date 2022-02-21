@@ -7,14 +7,11 @@ Based on: Minh Hoai Nguyen (v.hoainm@vinai.io)
 Last modified: 02-Feb-2022
 """
 
-
-
 import subprocess
 from scipy.io import wavfile
 from librosa.feature import mfcc
 import os, tempfile, warnings
 import numpy as np
-import argparse
 from scipy.signal import correlate2d
 import time
 from math import pi, sqrt, exp
@@ -41,16 +38,19 @@ def find_offset(file1, file2, trim, max_offset_in_seconds=60):
     #corr_win = 10 # size of the window for correlation (in seconds)
     hop_length = 64  # for mfcc
     corr_win = 10 # size of the window for correlation (in seconds)
+    log = ""
 
-
-    print("Extract/convert wav files ... ")
+    #print("Extract/convert wav files ... ")
+    log += "Extract/convert wav files ... "
     start = time.time()
     tmp1 = extract_wav_file(file1, fs, trim)
     tmp2 = extract_wav_file(file2, fs, trim)
     stop = time.time()
-    print("   Done. This took {:0.2f}s".format(stop-start))
+    log += "{:0.2f}s\n".format(stop-start)
+    #print("   Done. This took {:0.2f}s".format(stop-start))
 
-    print("Computing MFCC features ...")
+    #print("Computing MFCC features ...")
+    log += "Computing MFCC features ..."
     start = time.time()
     # Removing warnings because of 18 bits block size
     # outputted by ffmpeg https://trac.ffmpeg.org/ticket/1843
@@ -82,9 +82,10 @@ def find_offset(file1, file2, trim, max_offset_in_seconds=60):
     mfcc2 = std_mfcc(mfcc2).T
     # length of mfcc feature is: avfile_duration*fs/hop_length
     stop = time.time()
-    print("   Done. This took {:0.2f}s".format(stop - start))
-
-    print("Finding offset using cross correlation ...")
+    #print("   Done. This took {:0.2f}s".format(stop - start))
+    log += "{:0.2f}s\n".format(stop - start)
+    #print("Finding offset using cross correlation ...")
+    log += "Finding offset using cross correlation ..."
     start = time.time()
     max_offset = int(max_offset_in_seconds*fs/hop_length)
     correl_nframes = int(corr_win * fs / hop_length)
@@ -97,8 +98,8 @@ def find_offset(file1, file2, trim, max_offset_in_seconds=60):
     max_k_index1, score1 = find_offset_index(mfcc1, mfcc2, nframes=correl_nframes, max_offset=max_offset)
     max_k_index2, score2 = find_offset_index(mfcc2, mfcc1, nframes=correl_nframes, max_offset=max_offset)
     stop = time.time()
-    print("   Done. This took {:0.2f}s".format(stop - start))
-    
+    #print("   Done. This took {:0.2f}s".format(stop - start))
+    log += "{:0.2f}s\n".format(stop - start)
     '''
     if score1 > score2:
         max_k_index = max_k_index1
@@ -114,7 +115,7 @@ def find_offset(file1, file2, trim, max_offset_in_seconds=60):
     offset = max_k_index * hop_length / float(fs) # * over / sample rate
 
 
-    return offset, score
+    return offset, score, log
 
 
 def ensure_non_zero(signal):
@@ -211,10 +212,11 @@ def wp_sync_call(file1, file2, max_offset, trim):
     if trim == 0:
         trim = 2*max_offset
 
-    offset, score = find_offset(file1, file2, trim=trim, max_offset_in_seconds=max_offset)
+    offset, score, log = find_offset(file1, file2, trim=trim, max_offset_in_seconds=max_offset)
 
     if score < 3:
-        print("============> WARNING: Low sync score. Manually check the output files carefully.")
+        log += "WARNING: Low sync score. Manually check the output files carefully.\n"
+        # print("============> WARNING: Low sync score. Manually check the output files carefully.")
 
     len1 = get_length(file1)
     len2 = get_length(file2)
@@ -224,25 +226,25 @@ def wp_sync_call(file1, file2, max_offset, trim):
     offset < 0, since egocentric video will starts earlier
     '''
     if offset > 0:
-        print("File1 starts earlier than File2 by {:0.3f} seconds. Sync score: {:0.2f}".format(offset, score))
+        # print("File1 starts earlier than File2 by {:0.3f} seconds. Sync score: {:0.2f}".format(offset, score))
         ss1 = offset
         ss2 = 0
         duration = min(len2, len1 - offset)
     else:
         offset = -offset
-        print("File2 starts earlier than File1 by {:0.3f} seconds. Sync score: {:0.2f}".format(offset, score))
+        # print("File2 starts earlier than File1 by {:0.3f} seconds. Sync score: {:0.2f}".format(offset, score))
         ss1 = 0
         ss2 = offset
         duration = min(len1, len2 - offset)
 
-    print("   Shared duration: {}".format(duration))
+    # print("   Shared duration: {}".format(duration))
 
-    print("Create sync egocentric video ...")
+    # print("Create sync egocentric video ...")
     start = time.time()
 
     out_file2 = create_sync_file(file2, ss2, duration)
-    stop = time.time()
-    #print("   File {} was created".format(out_file1))
-    print("   File {} was created".format(out_file2))
-    print("   Done. This took {:0.2f}s".format(stop - start))
-
+    # stop = time.time()
+    # #print("   File {} was created".format(out_file1))
+    # print("   File {} was created".format(out_file2))
+    # print("   Done. This took {:0.2f}s".format(stop - start))
+    return out_file2, log
