@@ -1,0 +1,4 @@
+ffmpeg
+mxnet-cu101
+onnxruntime
+insightface
