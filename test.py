@@ -1,62 +1,48 @@
-# from utils import read_config
-# from wp_sync import wp_sync_call
+import tkinter as tk
+from tkinter import ttk
+from threading import Thread
 
-# config = read_config('config.json')
-# print(config)
+class Script(Thread):
+    def __init__(self):
+        super().__init__()
 
-# file1 = './data/webcam.mp4'
-# file2 = './data/egocentric.mp4'
+    def run(self):
+        for i in range(10**12):
+            print(i)
 
-# max_offset = config["config"]["wp"]["max_offset"]
-# trim = config["config"]["wp"]["trim"]
-# wp_sync_call(file1, file2, max_offset, trim)
+class App(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.geometry("450x300")
+        self.resizable(0, 0)
 
+        self.start = tk.Button(self, text="START", command=self.click)
+        self.start.pack()
+        self.stop = tk.Button(self, text="STOP", command=self.click_stop)
+        self.stop.pack()
 
-# from tkinter import *
-# from tkinter.ttk import *
-# import time
+        self.pbar = ttk.Progressbar(self, orient=tk.HORIZONTAL, length=410, mode='indeterminate')
+        self.pbar.pack(side=tk.TOP)
 
-# ws = Tk()
-# ws.title('PythonGuides')
-# ws.geometry('400x250+1000+300')
+    def click(self):
+        self.click_start()
+        thread = Script()
+        thread.start()
+        self.monitor(thread)
 
-# def step():
-#     for i in range(10):
-#         ws.update_idletasks()
-#         pb1['value'] += 5
-        
-#         time.sleep(0.01)
+    def click_start(self):
+        self.pbar.start(20)
 
-# pb1 = Progressbar(ws, orient=HORIZONTAL, length=350, mode='indeterminate')
-# pb1.pack(expand=True)
+    def click_stop(self):
+        self.pbar.stop()
 
-# Button(ws, text='Start', command=step).pack()
+    def monitor(self, thread):
+        if thread.is_alive():
+            self.after(100, lambda: self.monitor(thread))
+        else:
+            self.stop_sync()
 
-# ws.mainloop()
-
-# import tkinter as tk
-# r=tk.Tk()
-# r.title('hello')
-# ''
-# l= tk.Label(r, name='lbl', text='reduce the window width', width=10)
-# l.pack(fill=tk.BOTH) # or tk.X, depends; check interactive resizing now
-
-# tk.mainloop()
-
-from tkinter import *
-import tkinter
-
-top = tkinter.Tk()
-
-B1 = tkinter.Button(top, text ="FLAT", relief=FLAT )
-B2 = tkinter.Button(top, text ="RAISED", relief=RAISED )
-B3 = tkinter.Button(top, text ="SUNKEN", relief=SUNKEN )
-B4 = tkinter.Button(top, text ="GROOVE", relief=GROOVE )
-B5 = tkinter.Button(top, text ="RIDGE", relief=RIDGE )
-
-B1.pack()
-B2.pack()
-B3.pack()
-B4.pack()
-B5.pack()
-top.mainloop()
+if __name__ == "__main__":
+    app = App()
+    app.mainloop()
+    
