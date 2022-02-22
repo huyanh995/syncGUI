@@ -20,7 +20,7 @@ class Sync(Thread):
         self.is_ws = is_ws
         self.config = read_config('config.json')
 
-    def run(self):
+    def run_old(self):
         """
         Main function to run (both) scripts.
         Take inputs from globals() -> is_ws_sync and is_wp_sync
@@ -50,6 +50,10 @@ class Sync(Thread):
         global store_message
         store_message["message"] = message
         store_message["log"] = log
+
+    def run(self):
+        for i in range(10**9):
+            print(i)
 
 
 class App(tk.Tk):

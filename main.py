@@ -92,7 +92,10 @@ class App(tk.Tk):
         self.button = tk.Button(text="SYNC", command=self.click_sync)
         if machine == "Windows":
             self.button["bg"] = "green"
-            self.button.place(x=327, y=210)
+            self.button["width"] = 8
+            self.button["height"] = 2
+            self.button["relief"] = tk.GROOVE
+            self.button.place(x=318, y=219)
         else:
             self.button.place(x=330, y=235)
 

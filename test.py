@@ -1,14 +1,17 @@
 import tkinter as tk
 from tkinter import ttk
 from threading import Thread
+import subprocess
 
 class Script(Thread):
     def __init__(self):
         super().__init__()
 
     def run(self):
-        for i in range(10**12):
+        for i in range(10**9):
             print(i)
+            if i % 10**5 == 0:
+                subprocess.call("ls", shell=True)
 
 class App(tk.Tk):
     def __init__(self):
