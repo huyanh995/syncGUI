@@ -1,7 +1,6 @@
 import subprocess
 import os
 import numpy as np
-import matplotlib.pyplot as plt
 from scipy import stats
 import cv2
 
@@ -10,10 +9,9 @@ import cv2
 from SyncVid.offset_util import getdim, getOffset
 from SyncVid.coordreg import prepare_dir, Handler
 
-def process_vid(video_rec,screen_rec):
-	dir_path = os.path.dirname(os.path.abspath(video_rec))
-	print(dir_path)
-	t_vid = cv2.VideoCapture(screen_rec)
+def process_vid(webcam, screen):
+	dir_path = os.path.dirname(os.path.abspath(webcam))
+	t_vid = cv2.VideoCapture(screen)
 	height = t_vid.get(cv2.CAP_PROP_FRAME_HEIGHT)
 	width = t_vid.get(cv2.CAP_PROP_FRAME_WIDTH)
 	croph = height*(360/1600)
@@ -31,14 +29,14 @@ def process_vid(video_rec,screen_rec):
 	cmd = 'mkdir {}/video_frames'.format(dir_path)
 	subprocess.call(cmd, shell=True)
 
-	cmd = 'ffmpeg -i {} -filter:v "crop={}:{}:0:0" {}/cropped_screen.webm'.format(screen_rec,str(cropw),str(croph), dir_path)
+	cmd = 'ffmpeg -i {} -filter:v "crop={}:{}:0:0" {}/cropped_screen.webm'.format(screen,str(cropw),str(croph), dir_path)
 	subprocess.call(cmd, shell=True)
 
 	cropped_screen = dir_path + '/cropped_screen.webm'
 	cmd = 'ffmpeg -i {} -vf fps=30 {}/screen_frames/out%d.png'.format(cropped_screen, dir_path)
 	subprocess.call(cmd, shell=True)
 
-	cmd = 'ffmpeg -i {} -vf fps=30 {}/video_frames/out%d.png'.format(video_rec, dir_path)
+	cmd = 'ffmpeg -i {} -vf fps=30 {}/video_frames/out%d.png'.format(webcam, dir_path)
 	subprocess.call(cmd, shell=True)
 
 	DIR = dir_path+"/video_frames"
@@ -59,8 +57,8 @@ def NCC(src, dst):
     # print(src.shape, dst.shape)
     src = src.astype(np.float32)
     dst = dst.astype(np.float32)
-    print(src.shape)
-    print(dst.shape)
+    # print(src.shape)
+    # print(dst.shape)
     src=  src - np.mean(src)#translate
     dst = dst - np.mean(dst)
     ncc = (np.sum(src * dst))/((np.linalg.norm(src)*(np.linalg.norm(dst)))+1e-12)
@@ -109,45 +107,35 @@ def getOffset(handler, path1, path2, start, m, diff): #path2 is smaller images(s
             maxNCC = ncc
             bestT = t
             
-    print(bestT)
-    print(maxNCC)
+    # print(bestT)
+    # print(maxNCC)
     return bestT
 
-def ws_sync_call(face_vid, screen_vid):
-    size_face_vid, size_screen_vid = process_vid(face_vid, screen_vid)
-    
-    base_name = os.path.basename(in_file)
-    dir_name = os.path.dirname(in_file)
+def ws_sync_call(webcam, screen):
+    size_face_vid, size_screen_vid = process_vid(webcam, screen)
+
+    base_name = os.path.basename(webcam)
+    dir_name = os.path.dirname(webcam)
     file_name = os.path.splitext(base_name)[0]
     file_ext = os.path.splitext(base_name)[1]
     out_file = "{}/{}_sync{}".format(dir_name, file_name, file_ext)
 
-
-
-    # print(size_face_vid, size_screen_vid)
-    # print("Frame Difference", abs(size_screen_vid-size_face_vid))
     prepare_dir()
     dim = getdim(size_screen_vid)
     handler = Handler('./SyncVid/models/2d106det', 0, ctx_id=0, det_size=640)
     Offset = getOffset(handler,'video_frames', 'screen_frames', 150, 12 ,3)
     print("predicted Offset:", Offset)
-    # img_array = []
-    # for i in range(size_screen_vid):
-    #     img = cv2.imread('video_frames/out' + str(i+Offset) + '.png')
-    #     height, width, layers = img.shape
-    #     size = (width,height)
-    #     img_array.append(img)
-    # out = cv2.VideoWriter('webcam.mp4',cv2.VideoWriter_fourcc(*'DIVX'), 30, size)
-    
-    # for i in range(len(img_array)):
-    #     out.write(img_array[i])
-    # out.release()
+
+    Offset = 45
     t1 = Offset/30
-    t2 = size_screen_vid/30
+    t2 = 1494/30
     print(t1,t2)
 
-    cmd = 'ffmpeg -i {} -c:v copy {}'.format(face_vid, "webcam.mp4")
+    cmd = 'ffmpeg -i {} -c:v copy {}'.format(webcam, "webcam.mp4")
     subprocess.call(cmd, shell=True)
 
-    cmd = 'ffmpeg -i {} -ss {} -to {} -c copy {}'.format("webcam.mp4", str(t1), str(t1+t2), "output.mp4")
+    cmd = 'ffmpeg -i {} -ss {} -to {} -c copy {}'.format("webcam.mp4", str(t1), str(t1+t2), out_file)
+
     subprocess.call(cmd, shell=True)
+
+    return out_file, "" # For log (add later)

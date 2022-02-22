@@ -8,6 +8,7 @@ from threading import Thread
 
 from utils import read_config
 from wp_sync import wp_sync_call
+from ws_sync import ws_sync_call
 
 
 class Sync(Thread):
@@ -29,9 +30,11 @@ class Sync(Thread):
         message = ""
         log = ""
         if self.is_ws:
-            # Run script here            
-            message += "Synced webcam video: {}"
-            #log += log_ws
+            # Run script here  
+            out_ws_sync, log_ws = ws_sync_call(self.webcam, self.screen)          
+            message += "Synced webcam video: {}".format(out_ws_sync)
+
+            log += log_ws
             
         if self.is_wp:
             # Run script 1
@@ -122,8 +125,12 @@ class App(tk.Tk):
         self.show_log_button.place(x= 20, y=270)
 
         # Progress Bar
-        self.pbar = Progressbar(self, orient=tk.HORIZONTAL, length=410, mode='indeterminate')
-        self.pbar.place(x=20, y=310)
+        # self.pbar = Progressbar(self, orient=tk.HORIZONTAL, length=410, mode='indeterminate')
+        # self.pbar.place(x=20, y=310)
+
+        # Temporary feature
+        self.status_label = tk.Label(self, text="Status: Idle")
+        self.status_label.place(x=20, y=300)
 
         
     def open_file(self, file_type):
@@ -184,11 +191,13 @@ class App(tk.Tk):
 
 
     def start_sync(self):
-        self.pbar.start(20)
+        # self.pbar.start(20)
+        self.status_label.configure(text="Syncing ...")
         self.control_button("disabled")
 
     def stop_sync(self):
-        self.pbar.stop()
+        # self.pbar.stop()
+        self.status_label.configure(text="Finished!")
         self.control_button("normal")
 
         global store_message
