@@ -8,6 +8,7 @@ from threading import Thread
 
 from utils import read_config
 from wp_sync import wp_sync_call
+from ws_sync import ws_sync_call
 
 
 class Sync(Thread):
@@ -29,12 +30,18 @@ class Sync(Thread):
         message = ""
         log = ""
         if self.is_ws:
-            # Run script here            
-            message += "Synced webcam video: {}"
-            #log += log_ws
+            # Run script here  
+            out_ws_sync, log_ws = ws_sync_call(self.webcam, self.screen)          
+            message += "Synced webcam video: {}".format(out_ws_sync)
+
+            log += log_ws
             
         if self.is_wp:
             # Run script 1
+            if self.is_ws:
+                # Rename the webcam to the new webcam file
+                self.webcam = out_ws_sync
+                
             max_offset = self.config["config"]["wp"]["max_offset"]
             trim = self.config["config"]["wp"]["trim"]
             out_wp_sync, log_wp = wp_sync_call(self.webcam, self.ego, max_offset, trim) # Run script
@@ -169,13 +176,13 @@ class App(tk.Tk):
     def click_sync(self):
         res, warning = self.check_condition()
         if res:
-            if not (self.is_ws_sync or self.is_wp_sync):
+            if not (self.is_ws_sync.get() or self.is_wp_sync.get()):
                 # Need to choose sync mode
                 messagebox.showwarning("Warning", message="Choose sync mode!")
             else:
                 # Run script
                 self.start_sync()
-                sync_thread = Sync(self.is_wp_sync, self.is_ws_sync, self.webcam, self.screen, self.ego)
+                sync_thread = Sync(self.is_wp_sync.get(), self.is_ws_sync.get(), self.webcam, self.screen, self.ego)
                 sync_thread.start()
                 self.monitor(sync_thread)
         else:
