@@ -83,15 +83,14 @@ def trans_points(pts, M):
         return trans_points3d(pts, M)
 
 class Handler:
-    def __init__(self, prefix, epoch, im_size=192, det_size=224, ctx_id=0):
+    def __init__(self, prefix, epoch, model_path, im_size=192, det_size=224, ctx_id=0):
         print('loading', prefix, epoch)
         if ctx_id >= 0:
             ctx = mx.gpu(ctx_id)
         else:
             ctx = mx.cpu()
         image_size = (im_size, im_size)
-        self.detector = insightface.model_zoo.get_model(
-            '/root/.insightface/models/scrfd_10g_bnkps.onnx')  #can replace with your own face detector
+        self.detector = insightface.model_zoo.get_model(model_path)  #can replace with your own face detector
         # self.detector = insightface.model_zoo.get_model('retinaface_r50_v1')
         print(self.detector)
         self.detector.prepare(ctx_id=ctx_id)

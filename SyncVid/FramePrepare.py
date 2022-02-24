@@ -1,8 +1,5 @@
 import subprocess
 import os
-import numpy as np
-import matplotlib.pyplot as plt
-from scipy import stats
 
 def process_vid(video_rec,screen_rec):
 	dir_path = os.path.dirname(os.path.abspath(video_rec))

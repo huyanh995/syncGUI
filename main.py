@@ -35,6 +35,7 @@ class Sync(Thread):
             message += "Synced webcam video: {}".format(out_ws_sync)
 
             log += log_ws
+            pass	
             
         if self.is_wp:
             # Run script 1
@@ -176,13 +177,13 @@ class App(tk.Tk):
     def click_sync(self):
         res, warning = self.check_condition()
         if res:
-            if not (self.is_ws_sync or self.is_wp_sync):
+            if not (self.is_ws_sync.get() or self.is_wp_sync.get()):
                 # Need to choose sync mode
                 messagebox.showwarning("Warning", message="Choose sync mode!")
             else:
                 # Run script
                 self.start_sync()
-                sync_thread = Sync(self.is_wp_sync, self.is_ws_sync, self.webcam, self.screen, self.ego)
+                sync_thread = Sync(self.is_wp_sync.get(), self.is_ws_sync.get(), self.webcam, self.screen, self.ego)
                 sync_thread.start()
                 self.monitor(sync_thread)
         else:

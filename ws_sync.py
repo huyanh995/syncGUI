@@ -1,55 +1,68 @@
 import subprocess
+import sys
 import os
+import shutil
 import numpy as np
-from scipy import stats
 import cv2
 
 #from offset_util import getoffset_random,getdim,getOffset
 #from coordreg import prepare_dir, Handler
 from SyncVid.offset_util import getdim, getOffset
-from SyncVid.coordreg import prepare_dir, Handler
+from SyncVid.coordreg import Handler
+
+def delete_dir(dir_name):
+    try:
+        shutil.rmtree('{}/screen_frames'.format(dir_name), ignore_errors=True) 
+        print("Delete screen_frames")
+    except Exception:
+        # File not found
+        pass
+    try:
+        shutil.rmtree('{}/video_frames'.format(dir_name), ignore_errors=True)
+        print("Delete video_frames")
+    except Exception:
+        pass
+    try:
+        os.remove('{}/cropped_screen.webm'.format(dir_name))
+        print("Delete cropped_screen")
+    except Exception:
+        pass
+
 
 def process_vid(webcam, screen):
-	dir_path = os.path.dirname(os.path.abspath(webcam))
-	t_vid = cv2.VideoCapture(screen)
-	height = t_vid.get(cv2.CAP_PROP_FRAME_HEIGHT)
-	width = t_vid.get(cv2.CAP_PROP_FRAME_WIDTH)
-	croph = height*(360/1600)
-	cropw = width*(480/2560)
-	cmd = 'rm -r {}/screen_frames'.format(dir_path)
-	subprocess.call(cmd, shell=True)
-	cmd = 'rm -r {}/video_frames'.format(dir_path)
-	subprocess.call(cmd, shell=True)
-	cmd = 'rm {}/cropped_screen.webm'.format(dir_path)
-	subprocess.call(cmd, shell=True)
+	#dir_path = os.path.dirname(os.path.abspath(webcam))
+    dir_path = os.path.dirname(webcam)
+    t_vid = cv2.VideoCapture(screen)
+    height = t_vid.get(cv2.CAP_PROP_FRAME_HEIGHT)
+    width = t_vid.get(cv2.CAP_PROP_FRAME_WIDTH)
+    croph = height*(360/1600)
+    cropw = width*(480/2560)
 
-	cmd = 'mkdir {}/screen_frames'.format(dir_path)
-	subprocess.call(cmd, shell=True)
+    delete_dir(dir_path)
+    os.mkdir('{}/screen_frames'.format(dir_path))
+    os.mkdir('{}/video_frames'.format(dir_path))
 
-	cmd = 'mkdir {}/video_frames'.format(dir_path)
-	subprocess.call(cmd, shell=True)
+    cmd = 'ffmpeg -i {} -filter:v "crop={}:{}:0:0" {}/cropped_screen.webm'.format(screen,str(cropw),str(croph), dir_path)
+    subprocess.call(cmd, shell=True)
 
-	cmd = 'ffmpeg -i {} -filter:v "crop={}:{}:0:0" {}/cropped_screen.webm'.format(screen,str(cropw),str(croph), dir_path)
-	subprocess.call(cmd, shell=True)
+    cropped_screen = dir_path + '/cropped_screen.webm'
+    cmd = 'ffmpeg -i {} -vf fps=30 {}/screen_frames/out%d.png'.format(cropped_screen, dir_path)
+    subprocess.call(cmd, shell=True)
 
-	cropped_screen = dir_path + '/cropped_screen.webm'
-	cmd = 'ffmpeg -i {} -vf fps=30 {}/screen_frames/out%d.png'.format(cropped_screen, dir_path)
-	subprocess.call(cmd, shell=True)
+    cmd = 'ffmpeg -i {} -vf fps=30 {}/video_frames/out%d.png'.format(webcam, dir_path)
+    subprocess.call(cmd, shell=True)
 
-	cmd = 'ffmpeg -i {} -vf fps=30 {}/video_frames/out%d.png'.format(webcam, dir_path)
-	subprocess.call(cmd, shell=True)
+    DIR = dir_path+"/video_frames"
+    f_vid = len([name for name in os.listdir(DIR) if os.path.isfile(os.path.join(DIR, name))])
 
-	DIR = dir_path+"/video_frames"
-	f_vid = len([name for name in os.listdir(DIR) if os.path.isfile(os.path.join(DIR, name))])
+    DIR = dir_path+"/screen_frames"
+    chk = len([name for name in os.listdir(DIR) if os.path.isfile(os.path.join(DIR, name))])
 
-	DIR = dir_path+"/screen_frames"
-	chk = len([name for name in os.listdir(DIR) if os.path.isfile(os.path.join(DIR, name))])
-
-	cmd = 'cd ..'
-	subprocess.call(cmd, shell=True)
-
-	offset = chk-f_vid
-	return f_vid, chk
+    # cmd = 'cd ..'
+    # subprocess.call(cmd, shell=True)
+    chk = dir_path + '/screen_frames/out' + str(chk) + '.png'
+    # offset = chk-f_vid
+    return f_vid, chk
 
 def NCC(src, dst):
     src = np.array(src)
@@ -119,11 +132,12 @@ def ws_sync_call(webcam, screen):
     file_name = os.path.splitext(base_name)[0]
     file_ext = os.path.splitext(base_name)[1]
     out_file = "{}/{}_sync{}".format(dir_name, file_name, file_ext)
+    model_path = "./SyncVid/models/scrfd_10g_bnkps.onnx"
 
-    prepare_dir()
+    #prepare_dir()
     dim = getdim(size_screen_vid)
-    handler = Handler('./SyncVid/models/2d106det', 0, ctx_id=0, det_size=640)
-    Offset = getOffset(handler,'video_frames', 'screen_frames', 150, 12 ,3)
+    handler = Handler('./SyncVid/models/2d106det', 0, model_path, ctx_id=-1, det_size=640)
+    Offset = getOffset(handler, dir_name + '/video_frames', dir_name + '/screen_frames', 150, 12 ,3)
     print("predicted Offset:", Offset)
 
     Offset = 45
@@ -137,5 +151,7 @@ def ws_sync_call(webcam, screen):
     cmd = 'ffmpeg -i {} -ss {} -to {} -c copy {}'.format("webcam.mp4", str(t1), str(t1+t2), out_file)
 
     subprocess.call(cmd, shell=True)
+
+    delete_dir(dir_name)
 
     return out_file, "" # For log (add later)

@@ -1,8 +1,6 @@
-import os
 import cv2
 import numpy as np
-import matplotlib.pyplot as plt
-from scipy import stats
+
 def ssd(A,B):
   A = np.array(A)
   B = np.array(B)
@@ -85,8 +83,9 @@ def getOffset_ssd(handler, path1, path2, start, m, diff): #path2 is smaller imag
     print(bestT)
     print(minssd)
     return bestT
-def getdim(chk):
-  infile = 'screen_frames/out' + str(chk) + '.png'
+
+def getdim(infile):
+  #infile = 'screen_frames/out' + str(chk) + '.png'
   img_last = cv2.imread(infile)
 
   width = img_last.shape[1]
