@@ -35,10 +35,13 @@ class Sync(Thread):
             message += "Synced webcam video: {}".format(out_ws_sync)
 
             log += log_ws
-            pass	
             
         if self.is_wp:
             # Run script 1
+            if self.is_ws:
+                # Rename the webcam to the new webcam file
+                self.webcam = out_ws_sync
+                
             max_offset = self.config["config"]["wp"]["max_offset"]
             trim = self.config["config"]["wp"]["trim"]
             out_wp_sync, log_wp = wp_sync_call(self.webcam, self.ego, max_offset, trim) # Run script

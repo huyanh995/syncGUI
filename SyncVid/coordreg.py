@@ -1,6 +1,5 @@
 import cv2
 import numpy as np
-import os
 import subprocess
 import mxnet as mx
 from skimage import transform as trans

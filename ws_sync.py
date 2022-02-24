@@ -140,7 +140,6 @@ def ws_sync_call(webcam, screen):
     Offset = getOffset(handler, dir_name + '/video_frames', dir_name + '/screen_frames', 150, 12 ,3)
     print("predicted Offset:", Offset)
 
-    Offset = 45
     t1 = Offset/30
     t2 = 1494/30
     print(t1,t2)
