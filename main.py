@@ -205,7 +205,7 @@ class App(tk.Tk):
         self.control_button("normal")
 
         global store_message
-        if self.is_show_log:
+        if self.is_show_log.get():
             messagebox.showinfo(message="{}\n{}".format(store_message["message"], store_message["log"]))
         else:
             messagebox.showinfo(message=store_message["message"])

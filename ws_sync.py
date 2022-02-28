@@ -60,9 +60,9 @@ def process_vid(webcam, screen):
 
     # cmd = 'cd ..'
     # subprocess.call(cmd, shell=True)
-    chk = dir_path + '/screen_frames/out' + str(chk) + '.png'
+    out_dir = dir_path + '/screen_frames/out' + str(chk) + '.png'
     # offset = chk-f_vid
-    return f_vid, chk
+    return f_vid, chk, out_dir
 
 def NCC(src, dst):
     src = np.array(src)
@@ -125,7 +125,9 @@ def getOffset(handler, path1, path2, start, m, diff): #path2 is smaller images(s
     return bestT
 
 def ws_sync_call(webcam, screen):
-    size_face_vid, size_screen_vid = process_vid(webcam, screen)
+    size_face_vid, size_screen_vid, out_dir = process_vid(webcam, screen)
+    print("DEBUG: >>>>>", size_face_vid, size_screen_vid)
+    print("Frame Difference", abs(size_screen_vid-size_face_vid))
 
     base_name = os.path.basename(webcam)
     dir_name = os.path.dirname(webcam)
@@ -134,15 +136,14 @@ def ws_sync_call(webcam, screen):
     out_file = "{}/{}_sync{}".format(dir_name, file_name, file_ext)
     model_path = "./SyncVid/models/scrfd_10g_bnkps.onnx"
 
-    #prepare_dir()
-    dim = getdim(size_screen_vid)
+    #dim = getdim(out_dir)
     handler = Handler('./SyncVid/models/2d106det', 0, model_path, ctx_id=-1, det_size=640)
     Offset = getOffset(handler, dir_name + '/video_frames', dir_name + '/screen_frames', 150, 12 ,3)
     print("predicted Offset:", Offset)
 
     t1 = Offset/30
     t2 = size_screen_vid/30
-    print(t1,t2)
+    print("DEBUG: >>>>>", t1,t2)
 
     cmd = '""' + 'ffmpeg -i {} -c:v copy {}'.format(webcam, "temp.mp4") + '""' # Dont know why but https://stackoverflow.com/questions/804995/how-to-use-subprocess-when-multiple-arguments-contain-spaces suggested
     subprocess.call(cmd, shell=True)
