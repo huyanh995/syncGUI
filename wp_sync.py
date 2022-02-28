@@ -208,6 +208,7 @@ def get_length(filename):
 
 
 def wp_sync_call(file1, file2, max_offset, trim):
+    print("DEBUG: >>>>>", file1, file2)
 
     if trim == 0:
         trim = 2*max_offset

@@ -133,7 +133,8 @@ def ws_sync_call(webcam, screen):
     dir_name = os.path.dirname(webcam)
     file_name = os.path.splitext(base_name)[0]
     file_ext = os.path.splitext(base_name)[1]
-    out_file = "{}/{}_sync{}".format(dir_name, file_name, file_ext)
+    out_file = "{}/{}_sync{}".format(dir_name, file_name, ".mp4")
+    tmp_file = "{}/temp.mp4".format(dir_name)
     model_path = "./SyncVid/models/scrfd_10g_bnkps.onnx"
 
     #dim = getdim(out_dir)
@@ -145,13 +146,16 @@ def ws_sync_call(webcam, screen):
     t2 = size_screen_vid/30
     print("DEBUG: >>>>>", t1,t2)
 
-    cmd = '""' + 'ffmpeg -i {} -c:v copy {}'.format(webcam, "temp.mp4") + '""' # Dont know why but https://stackoverflow.com/questions/804995/how-to-use-subprocess-when-multiple-arguments-contain-spaces suggested
+    cmd = 'ffmpeg -i {} -c:v copy {}'.format(webcam, tmp_file)
+    print("DEBUG: >>>>>", cmd)
     subprocess.call(cmd, shell=True)
 
-    cmd = '""' + 'ffmpeg -i {} -ss {} -to {} -c copy {}'.format("temp.mp4", str(t1), str(t1+t2), out_file) + '""'
-
+    cmd = 'ffmpeg -i {} -ss {} -to {} -c copy {}'.format(tmp_file, str(t1), str(t1+t2), out_file)
+    print("DEBUG: >>>>>", cmd)
     subprocess.call(cmd, shell=True)
 
     delete_dir(dir_name)
+    if os.path.isfile(tmp_file):
+        os.remove(tmp_file)
 
     return out_file, "" # For log (add later)
