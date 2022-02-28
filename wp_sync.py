@@ -169,18 +169,12 @@ def extract_wav_file(afile, fs, trim):
     tmp_name = tmp.name
     tmp.close()
     if trim == -1:
-        psox = subprocess.Popen([
-            'ffmpeg', '-loglevel', 'panic', '-i', afile,
-            '-ac', '1', '-ar', str(fs), '-acodec', 'pcm_s16le', tmp_name
-        ], stderr=subprocess.PIPE)
+        cmd = 'ffmpeg -loglevel panic -i {} -ac 1 -ar {} -acodec pcm_s16le {}'.format(afile, str(fs), tmp_name)
+        subprocess.call(cmd, shell=True)
     else:
-        psox = subprocess.Popen([
-            'ffmpeg', '-loglevel', 'panic', '-i', afile,
-            '-ac', '1', '-ar', str(fs), '-t', str(trim), '-acodec', 'pcm_s16le', tmp_name
-        ], stderr=subprocess.PIPE)
-    psox.communicate()
-    if not psox.returncode == 0:
-        raise Exception("FFMpeg failed")
+        cmd = 'ffmpeg -loglevel panic -i {} -ac 1 -ar {} -t {} -acodec pcm_s16le {}'.format(afile, str(fs), str(trim), tmp_name)
+        subprocess.call(cmd, shell=True)
+
     return tmp_name
 
 
