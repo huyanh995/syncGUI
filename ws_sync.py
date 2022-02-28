@@ -141,13 +141,13 @@ def ws_sync_call(webcam, screen):
     print("predicted Offset:", Offset)
 
     t1 = Offset/30
-    t2 = 1494/30
+    t2 = size_screen_vid/30
     print(t1,t2)
 
-    cmd = 'ffmpeg -i {} -c:v copy {}'.format(webcam, "webcam.mp4")
+    cmd = '""' + 'ffmpeg -i {} -c:v copy {}'.format(webcam, "temp.mp4") + '""' # Dont know why but https://stackoverflow.com/questions/804995/how-to-use-subprocess-when-multiple-arguments-contain-spaces suggested
     subprocess.call(cmd, shell=True)
 
-    cmd = 'ffmpeg -i {} -ss {} -to {} -c copy {}'.format("webcam.mp4", str(t1), str(t1+t2), out_file)
+    cmd = '""' + 'ffmpeg -i {} -ss {} -to {} -c copy {}'.format("temp.mp4", str(t1), str(t1+t2), out_file) + '""'
 
     subprocess.call(cmd, shell=True)
 

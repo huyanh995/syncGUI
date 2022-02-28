@@ -1,157 +1,250 @@
+"""
+Webcam & egocentric syn
+Only crop the egocentric video
+Assume egocentric is earlier
+Modified by:Yifeng Huang(yifehuang@cs.stonybrook.edu)
+Based on: Minh Hoai Nguyen (v.hoainm@vinai.io)
+Last modified: 02-Feb-2022
+"""
+
 import subprocess
-import sys
-import os
-import shutil
+from scipy.io import wavfile
+from librosa.feature import mfcc
+import os, tempfile, warnings
 import numpy as np
-import cv2
+from scipy.signal import correlate2d
+import time
+from math import pi, sqrt, exp
 
-#from offset_util import getoffset_random,getdim,getOffset
-#from coordreg import prepare_dir, Handler
-from SyncVid.offset_util import getdim, getOffset
-from SyncVid.coordreg import Handler
-
-def delete_dir(dir_name):
-    try:
-        shutil.rmtree('{}/screen_frames'.format(dir_name), ignore_errors=True) 
-        print("Delete screen_frames")
-    except Exception:
-        # File not found
-        pass
-    try:
-        shutil.rmtree('{}/video_frames'.format(dir_name), ignore_errors=True)
-        print("Delete video_frames")
-    except Exception:
-        pass
-    try:
-        os.remove('{}/cropped_screen.webm'.format(dir_name))
-        print("Delete cropped_screen")
-    except Exception:
-        pass
+def gauss1d(n=21,sigma=1):
+    r = range(-int(n/2),int(n/2)+1)
+    return [1 / (sigma * sqrt(2*pi)) * exp(-float(x)**2/(2*sigma**2)) for x in r]
 
 
-def process_vid(webcam, screen):
-	#dir_path = os.path.dirname(os.path.abspath(webcam))
-    dir_path = os.path.dirname(webcam)
-    t_vid = cv2.VideoCapture(screen)
-    height = t_vid.get(cv2.CAP_PROP_FRAME_HEIGHT)
-    width = t_vid.get(cv2.CAP_PROP_FRAME_WIDTH)
-    croph = height*(360/1600)
-    cropw = width*(480/2560)
+# Find the offset in seconds between two files
+# returns:
+#   offset: offset in seconds
+#       A positive value means file1 start earliers than file2 and the beginning of file1 should be trimmed.
+#       A negative value means file2 start earliers than file1 and the beginning of file2 should be trimmed.
+#   score: a score to indicate the matching of the two sync files.
+#       The higher score, the more confidence the sync program is
+#       For statistically reliable, score should be at least 3 or higher
 
-    delete_dir(dir_path)
-    os.mkdir('{}/screen_frames'.format(dir_path))
-    os.mkdir('{}/video_frames'.format(dir_path))
 
-    cmd = 'ffmpeg -i {} -filter:v "crop={}:{}:0:0" {}/cropped_screen.webm'.format(screen,str(cropw),str(croph), dir_path)
-    subprocess.call(cmd, shell=True)
+import datetime
+def find_offset(file1, file2, trim, max_offset_in_seconds=60):
+    fs = 22050 # audio sampling rate
+    #hop_length = 512 # for mfcc
+    #corr_win = 10 # size of the window for correlation (in seconds)
+    hop_length = 64  # for mfcc
+    corr_win = 10 # size of the window for correlation (in seconds)
+    log = ""
 
-    cropped_screen = dir_path + '/cropped_screen.webm'
-    cmd = 'ffmpeg -i {} -vf fps=30 {}/screen_frames/out%d.png'.format(cropped_screen, dir_path)
-    subprocess.call(cmd, shell=True)
+    #print("Extract/convert wav files ... ")
+    log += "Extract/convert wav files ... "
+    start = time.time()
+    tmp1 = extract_wav_file(file1, fs, trim)
+    tmp2 = extract_wav_file(file2, fs, trim)
+    stop = time.time()
+    log += "{:0.2f}s\n".format(stop-start)
+    #print("   Done. This took {:0.2f}s".format(stop-start))
 
-    cmd = 'ffmpeg -i {} -vf fps=30 {}/video_frames/out%d.png'.format(webcam, dir_path)
-    subprocess.call(cmd, shell=True)
+    #print("Computing MFCC features ...")
+    log += "Computing MFCC features ..."
+    start = time.time()
+    # Removing warnings because of 18 bits block size
+    # outputted by ffmpeg https://trac.ffmpeg.org/ticket/1843
+    warnings.simplefilter("ignore", wavfile.WavFileWarning)
+    a1 = wavfile.read(tmp1, mmap=True)[1] / (2.0 ** 15)
+    a2 = wavfile.read(tmp2, mmap=True)[1] / (2.0 ** 15)
 
-    DIR = dir_path+"/video_frames"
-    f_vid = len([name for name in os.listdir(DIR) if os.path.isfile(os.path.join(DIR, name))])
 
-    DIR = dir_path+"/screen_frames"
-    chk = len([name for name in os.listdir(DIR) if os.path.isfile(os.path.join(DIR, name))])
+    #Gaussian Smooth
+    #2.13
+    #G = gauss1d(11)
+    #a1 = np.convolve(a1, G, 'same')
+    #a2 = np.convolve(a2, G, 'same')
 
-    # cmd = 'cd ..'
-    # subprocess.call(cmd, shell=True)
-    chk = dir_path + '/screen_frames/out' + str(chk) + '.png'
-    # offset = chk-f_vid
-    return f_vid, chk
+    #print('For smmmmmmmmmmmmmmmmmmmmmm', a1)
+    #print(a1.shape)
+    os.remove(tmp1)
+    os.remove(tmp2)
 
-def NCC(src, dst):
-    src = np.array(src)
-    dst = np.array(dst)
-    # print(src.shape, dst.shape)
-    src = src.astype(np.float32)
-    dst = dst.astype(np.float32)
-    # print(src.shape)
-    # print(dst.shape)
-    src=  src - np.mean(src)#translate
-    dst = dst - np.mean(dst)
-    ncc = (np.sum(src * dst))/((np.linalg.norm(src)*(np.linalg.norm(dst)))+1e-12)
-    return ncc
+    a1 = ensure_non_zero(a1)
+    a2 = ensure_non_zero(a2)
+    #print('a1', a1)
+    #print(a1.shape)
+    mfcc1 = mfcc(a1, hop_length=hop_length, sr=fs)
+    #print('mmmmmmmmmmfffffff1', mfcc1)
+    #print(mfcc1.shape)
+    mfcc2 = mfcc(a2, hop_length=hop_length, sr=fs)
+    mfcc1 = std_mfcc(mfcc1).T
+    mfcc2 = std_mfcc(mfcc2).T
+    # length of mfcc feature is: avfile_duration*fs/hop_length
+    stop = time.time()
+    #print("   Done. This took {:0.2f}s".format(stop - start))
+    log += "{:0.2f}s\n".format(stop - start)
+    #print("Finding offset using cross correlation ...")
+    log += "Finding offset using cross correlation ..."
+    start = time.time()
+    max_offset = int(max_offset_in_seconds*fs/hop_length)
+    correl_nframes = int(corr_win * fs / hop_length)
+    #print('corrrrrrrr', correl_nframes)
+    '''
+    mfcc1 is the mfcc feature of webcam video
+    mfcc2 is the mfcc feature of egocentric video
+    '''
 
-def getDMMatrix(handler, path, start, m, diff, flag, dim):
-    ret = []
-    for i in range(m):
-        image_num = start + i * diff
-        
-        infile = path + '/out' + str(image_num) + '.png'
-        # print(infile)
-        img = cv2.imread(infile)
-        if(flag):
-            img = cv2.resize(img, dim, interpolation=cv2.INTER_AREA)
-        preds_t = handler.get(img, get_all=True)
-        preds_t = np.array(preds_t)
-        # print(preds_t.shape)
-        # preds_t = preds_t.ravel()
-        ret.append(preds_t)
-    return ret
+    max_k_index1, score1 = find_offset_index(mfcc1, mfcc2, nframes=correl_nframes, max_offset=max_offset)
+    max_k_index2, score2 = find_offset_index(mfcc2, mfcc1, nframes=correl_nframes, max_offset=max_offset)
+    stop = time.time()
+    #print("   Done. This took {:0.2f}s".format(stop - start))
+    log += "{:0.2f}s\n".format(stop - start)
+    '''
+    if score1 > score2:
+        max_k_index = max_k_index1
+        score = score1
+    else:
+        max_k_index = - max_k_index2
+        score = score2
+    '''
 
-def getOffset(handler, path1, path2, start, m, diff): #path2 is smaller images(screen cropped)
-    infile = path1 + '/out1.png'
-    img = cv2.imread(infile, cv2.cv2.IMREAD_GRAYSCALE)
-    width = img.shape[1]
-    height = img.shape[0]
-    dim = (width, height)
+    #egocentric will be earlier, so the offset is negative
+    max_k_index = - max_k_index2
+    score = score2
+    offset = max_k_index * hop_length / float(fs) # * over / sample rate
 
-    DMmatrix1 =  getDMMatrix(handler, path2, 1, m, diff, True,  dim)
-    for x in range(len(DMmatrix1)):
-        print(DMmatrix1[x].shape)
-    maxNCC = -1
-    bestT = -np.inf
-    for t in range(0, start):
-        DMmatrix2 = getDMMatrix(handler, path1, start + t, m, diff, False,  dim)
-        for x in range(len(DMmatrix1)):
-            if DMmatrix1[x] == []:
-                DMmatrix2[x] = []
-        # print(len(DMmatrix1))
-        # print(len(DMmatrix2))
-        ncc = NCC(DMmatrix1, DMmatrix2)
-        # print(ncc)
-        if(ncc > maxNCC):
-            # print(start + t, start)
-            maxNCC = ncc
-            bestT = t
-            
-    # print(bestT)
-    # print(maxNCC)
-    return bestT
 
-def ws_sync_call(webcam, screen):
-    size_face_vid, size_screen_vid = process_vid(webcam, screen)
+    return offset, score, log
 
-    base_name = os.path.basename(webcam)
-    dir_name = os.path.dirname(webcam)
+
+def ensure_non_zero(signal):
+    # We add a little bit of static to avoid
+    # 'divide by zero encountered in log'
+    # during MFCC computation
+    signal += np.random.random(len(signal)) * 10**-10
+    return signal
+
+
+def std_mfcc(mfcc):
+    return (mfcc - np.mean(mfcc, axis=0)) / np.std(mfcc, axis=0)
+
+
+# Find offset index using cross corelation
+# Assume mfcc1 starts before mfcc2, find the positive offset to trim the beginning of mfcc1
+# Return:
+#   offset_idx: offset index for mfcc1 to align with mfcc2
+#        mfcc2[0:duration] is aligned with mfcc1[ofset_idx:offset_idx+duration]
+#   score: the score of the matching
+def find_offset_index(mfcc1, mfcc2, nframes, max_offset):
+
+    n1, mdim1 = mfcc1.shape
+    n2, mdim2 = mfcc2.shape
+    nframes = int(min(nframes, 0.2 * n2 - 1))
+    max_offset = min(max_offset, n1 - nframes - 1)
+
+    min_idx = int(np.floor(0.1*n2))
+    max_idx = int(np.floor(min([0.9*n2 - nframes, n1 - nframes - max_offset]))) - 1
+    if min_idx > max_idx:
+        min_idx = 0
+
+    idxs = np.linspace(min_idx, max_idx, num=10)
+
+    c = np.zeros(shape=(len(idxs), max_offset+1))
+    for i in range(len(idxs)):
+        idx = int(idxs[i])
+        c_i = correlate2d(mfcc1[idx:idx+nframes+max_offset], mfcc2[idx:idx+nframes], mode='valid')
+
+        c[i,:] = c_i[:,0]
+    c = np.sum(c, axis=0)
+
+    offset_idx = np.argmax(c)
+    score = (c[offset_idx] - np.mean(c)) / np.std(c)  # standard score of peak
+
+    return offset_idx, score
+
+# Extract a temporary wav file
+def extract_wav_file(afile, fs, trim):
+    tmp = tempfile.NamedTemporaryFile(mode='r+b', prefix='offset_', suffix='.wav')
+    tmp_name = tmp.name
+    tmp.close()
+    if trim == -1:
+        psox = subprocess.Popen([
+            'ffmpeg', '-loglevel', 'panic', '-i', afile,
+            '-ac', '1', '-ar', str(fs), '-acodec', 'pcm_s16le', tmp_name
+        ], stderr=subprocess.PIPE)
+    else:
+        psox = subprocess.Popen([
+            'ffmpeg', '-loglevel', 'panic', '-i', afile,
+            '-ac', '1', '-ar', str(fs), '-t', str(trim), '-acodec', 'pcm_s16le', tmp_name
+        ], stderr=subprocess.PIPE)
+    psox.communicate()
+    if not psox.returncode == 0:
+        raise Exception("FFMpeg failed")
+    return tmp_name
+
+
+def create_sync_file(in_file, ss, duration):
+    base_name = os.path.basename(in_file)
+    dir_name = os.path.dirname(in_file)
     file_name = os.path.splitext(base_name)[0]
     file_ext = os.path.splitext(base_name)[1]
     out_file = "{}/{}_sync{}".format(dir_name, file_name, file_ext)
-    model_path = "./SyncVid/models/scrfd_10g_bnkps.onnx"
-
-    #prepare_dir()
-    dim = getdim(size_screen_vid)
-    handler = Handler('./SyncVid/models/2d106det', 0, model_path, ctx_id=-1, det_size=640)
-    Offset = getOffset(handler, dir_name + '/video_frames', dir_name + '/screen_frames', 150, 12 ,3)
-    print("predicted Offset:", Offset)
-
-    Offset = 45
-    t1 = Offset/30
-    t2 = 1494/30
-    print(t1,t2)
-
-    cmd = 'ffmpeg -i {} -c:v copy {}'.format(webcam, "webcam.mp4")
+    print(out_file)
+    cmd = ' '.join(['ffmpeg', '-y', '-loglevel', 'panic', '-i', in_file, '-ss', str(ss), '-t', str(duration), '-c copy', out_file])
+    print("   " + cmd)
     subprocess.call(cmd, shell=True)
+    return out_file
 
-    cmd = 'ffmpeg -i {} -ss {} -to {} -c copy {}'.format("webcam.mp4", str(t1), str(t1+t2), out_file)
 
-    subprocess.call(cmd, shell=True)
+def get_length(filename):
+    result = subprocess.run(["ffprobe", "-v", "error", "-show_entries",
+                             "format=duration", "-of",
+                             "default=noprint_wrappers=1:nokey=1", filename],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT)
+    return float(result.stdout)
 
-    delete_dir(dir_name)
 
-    return out_file, "" # For log (add later)
+
+def wp_sync_call(file1, file2, max_offset, trim):
+
+    if trim == 0:
+        trim = 2*max_offset
+
+    offset, score, log = find_offset(file1, file2, trim=trim, max_offset_in_seconds=max_offset)
+
+    if score < 3:
+        log += "WARNING: Low sync score. Manually check the output files carefully.\n"
+        # print("============> WARNING: Low sync score. Manually check the output files carefully.")
+
+    len1 = get_length(file1)
+    len2 = get_length(file2)
+
+
+    '''
+    offset < 0, since egocentric video will starts earlier
+    '''
+    if offset > 0:
+        # print("File1 starts earlier than File2 by {:0.3f} seconds. Sync score: {:0.2f}".format(offset, score))
+        ss1 = offset
+        ss2 = 0
+        duration = min(len2, len1 - offset)
+    else:
+        offset = -offset
+        # print("File2 starts earlier than File1 by {:0.3f} seconds. Sync score: {:0.2f}".format(offset, score))
+        ss1 = 0
+        ss2 = offset
+        duration = min(len1, len2 - offset)
+
+    # print("   Shared duration: {}".format(duration))
+
+    # print("Create sync egocentric video ...")
+    start = time.time()
+
+    out_file2 = create_sync_file(file2, ss2, duration)
+    # stop = time.time()
+    # #print("   File {} was created".format(out_file1))
+    # print("   File {} was created".format(out_file2))
+    # print("   Done. This took {:0.2f}s".format(stop - start))
+    return out_file2, log
