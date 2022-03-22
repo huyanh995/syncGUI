@@ -191,7 +191,8 @@ def create_sync_file(in_file, ss, duration):
     file_ext = os.path.splitext(base_name)[1]
     out_file = "{}/{}_sync{}".format(dir_name, file_name, file_ext)
     print(out_file)
-    cmd = ' '.join(['ffmpeg', '-y', '-loglevel', 'panic', '-i', in_file, '-ss', str(ss), '-t', str(duration), '-c copy', out_file])
+    cmd = ' '.join(['ffmpeg' , '-ss', str(ss), '-i', in_file,  '-t', str(duration), '-map 0 -c:v copy', out_file])
+    #cmd = ' '.join(['ffmpeg', '-y', '-loglevel', 'panic', '-i', in_file, '-ss', str(ss), '-t', str(duration), '-c copy', out_file])
     print("   " + cmd)
     subprocess.call(cmd, shell=True)
     return out_file
@@ -207,33 +208,33 @@ def get_length(filename):
 
 
 
-def wp_sync_call(file1, file2, max_offset, trim):
-    print("DEBUG: >>>>>", file1, file2)
+def wp_sync_call(new_webcam, egocentric, max_offset, trim):
+    print("DEBUG: >>>>>", new_webcam, egocentric)
 
     if trim == 0:
         trim = 2*max_offset
 
-    offset, score, log = find_offset(file1, file2, trim=trim, max_offset_in_seconds=max_offset)
+    offset, score, log = find_offset(new_webcam, egocentric, trim=trim, max_offset_in_seconds=max_offset)
 
     if score < 3:
         log += "WARNING: Low sync score. Manually check the output files carefully.\n"
         # print("============> WARNING: Low sync score. Manually check the output files carefully.")
 
-    len1 = get_length(file1)
-    len2 = get_length(file2)
+    len1 = get_length(new_webcam)
+    len2 = get_length(egocentric)
 
 
     '''
     offset < 0, since egocentric video will starts earlier
     '''
     if offset > 0:
-        # print("File1 starts earlier than File2 by {:0.3f} seconds. Sync score: {:0.2f}".format(offset, score))
+        # print("new_webcam starts earlier than egocentric by {:0.3f} seconds. Sync score: {:0.2f}".format(offset, score))
         ss1 = offset
         ss2 = 0
         duration = min(len2, len1 - offset)
     else:
         offset = -offset
-        # print("File2 starts earlier than File1 by {:0.3f} seconds. Sync score: {:0.2f}".format(offset, score))
+        # print("egocentric starts earlier than new_webcam by {:0.3f} seconds. Sync score: {:0.2f}".format(offset, score))
         ss1 = 0
         ss2 = offset
         duration = min(len1, len2 - offset)
@@ -243,9 +244,9 @@ def wp_sync_call(file1, file2, max_offset, trim):
     # print("Create sync egocentric video ...")
     start = time.time()
 
-    out_file2 = create_sync_file(file2, ss2, duration)
+    out_egocentric = create_sync_file(egocentric, ss2, duration)
     # stop = time.time()
-    # #print("   File {} was created".format(out_file1))
-    # print("   File {} was created".format(out_file2))
+    # #print("   File {} was created".format(out_new_webcam))
+    # print("   File {} was created".format(out_egocentric))
     # print("   Done. This took {:0.2f}s".format(stop - start))
-    return out_file2, log
+    return out_egocentric, log

@@ -31,7 +31,9 @@ class Sync(Thread):
         log = ""
         if self.is_ws:
             # Run script here  
-            out_ws_sync, log_ws = ws_sync_call(self.webcam, self.screen)          
+            max_offset = self.config["config"]["wp"]["max_offset"]
+            trim = self.config["config"]["wp"]["trim"]
+            out_ws_sync, log_ws = ws_sync_call(self.screen, self.webcam, max_offset, trim)          
             message += "Synced webcam video: {}".format(out_ws_sync)
 
             log += log_ws
