@@ -1,3 +1,7 @@
+import subprocess
+from glob import glob
+import os
+import shutil
 import tkinter as tk
 from tkinter import filedialog, messagebox
 import platform
@@ -5,61 +9,79 @@ from tkinter.ttk import Progressbar
 from functools import partial
 from threading import Thread
 
-
-from utils import read_config
-from wp_sync import wp_sync_call
-from ws_sync import ws_sync_call
+from utils import convert_to_30fps, read_config, recover_GP3_webcam, video_align, combine_audio_video, convert_to_30fps, split_path
+from audio_sync import sync
 
 
 class Sync(Thread):
-    def __init__(self, is_wp, is_ws, webcam, screen, ego):
+    def __init__(self, is_upsampling, is_keepfiles, webcam, screen, audio, ego):
         super().__init__()
+        # 4 sources of data
         self.webcam = webcam
         self.screen = screen
+        self.screen_audio = audio
         self.ego = ego
-        self.is_wp = is_wp
-        self.is_ws = is_ws
+
+        self.dir_name, _, _ = split_path(screen)
+
+        # Boolean variables to control the flow
+        self.is_upsampling = is_upsampling
+        self.is_keepfiles = is_keepfiles
         self.config = read_config('config.json')
 
     def run(self):
         """
         Main function to run (both) scripts.
-        Take inputs from globals() -> is_ws_sync and is_wp_sync
+        Take inputs from globals() -> is_keepfiles_sync and is_upsampling_sync
         Return log and messages (for displaying)
         """
         message = ""
         log = ""
-        if self.is_ws:
-            # Run script here  
-            max_offset = self.config["config"]["wp"]["max_offset"]
-            trim = self.config["config"]["wp"]["trim"]
-            out_ws_sync, log_ws = ws_sync_call(self.screen, self.webcam, max_offset, trim)          
-            message += "Synced webcam video: {}".format(out_ws_sync)
+        global storage # Use to store data across many classes/objects
+        # If I use thread.join(), it works but make GUI frozen.
 
-            log += log_ws
-            
-        if self.is_wp:
-            # Run script 1
-            if self.is_ws:
-                # Rename the webcam to the new webcam file
-                self.webcam = out_ws_sync
-                
-            max_offset = self.config["config"]["wp"]["max_offset"]
-            trim = self.config["config"]["wp"]["trim"]
-            out_wp_sync, log_wp = wp_sync_call(self.webcam, self.ego, max_offset, trim) # Run script
+        # Recover webcam from 10fps -> 30fps, algin with audio duration
+        # webcam.avi -> re_webcam.avi
+        self.webcam = recover_GP3_webcam(self.screen_audio, self.webcam)
+        storage["inter_files"].append(self.webcam)
+        # Align screen video to screen audio, then combine them
+        self.screen = video_align(self.screen, self.screen_audio) # screen.avi -> align_screen.avi
+        storage["inter_files"].append(self.screen)
+        self.screen = combine_audio_video(self.screen, self.screen_audio) # align_screen.avi -> align_screen.mp4
+        storage["inter_files"].append(self.screen)
+        
+        # Combine webcam and screen video
+        self.webcam = combine_audio_video(self.webcam, self.screen_audio) # re_webcam.avi -> re_webcam.mp4
+        storage["inter_files"].append(self.webcam)
+        if self.is_upsampling:
+            self.screen = convert_to_30fps(self.screen) # align_screen.mp4 -> align_screen_30fps.mp4
+            storage["inter_files"].append(self.screen)
+        # Sync egocentric and screen video
+        self.ego, _ = sync(self.screen, self.ego) # egocentric.MP4 -> egocentric_sync.mp4
 
-            # Store message and log to display
-            if message != "":
-                message += "\n"
-                log += "\n"
-            message += "Synced egocentric video: {}".format(out_wp_sync)
-            log += log_wp
+        # Save synced videos to new folder
+        if os.path.isdir(self.dir_name):
+            out_dir = os.path.join(self.dir_name, "synced_data")
+            if os.path.exists(out_dir):
+                shutil.rmtree(out_dir)
+            os.mkdir(out_dir)
 
-        # Save to global dictionary
-        global store_message
-        store_message["message"] = message
-        store_message["log"] = log
+            _, _, ext = split_path(self.screen)
+            shutil.copy(self.screen, os.path.join(out_dir, "synced_screen" + ext))
 
+            _, _, ext = split_path(self.webcam)
+            shutil.copy(self.webcam, os.path.join(out_dir, "synced_webcam" + ext))
+
+            _, _, ext = split_path(self.ego)
+            shutil.copy(self.ego, os.path.join(out_dir, "synced_egocentric" + ext))
+
+            storage["out"] = out_dir
+            storage["message"] = "Synced videos saved in {}".format(out_dir) + "\nDo you want to open it?"
+            storage["inter_files"].append(self.ego)
+
+        else:
+            print("Something wrong!", print(self.dir_name))
+            raise Exception
 
 class App(tk.Tk):
     def __init__(self, machine):
@@ -67,7 +89,11 @@ class App(tk.Tk):
         # Store file path
         self.webcam = None
         self.screen = None
+        self.audio = None
         self.ego = None
+
+        self.message = ""
+        self.log = []
 
         self.title("SBU Synchronization Tool")
 
@@ -75,6 +101,7 @@ class App(tk.Tk):
         self.geometry("450x340") 
         self.resizable(False, False) 
         self.eval('tk::PlaceWindow . center')
+        self.machine = machine
         if machine == "Windows":
             self.iconbitmap('icon.ico')
 
@@ -116,18 +143,18 @@ class App(tk.Tk):
         self.button_egocentric.place(x=330, y=170)
 
         # Check buttons
-        self.is_ws_sync = tk.BooleanVar()
-        self.is_ws_sync.set(True)
-        self.is_wp_sync = tk.BooleanVar()
-        self.is_wp_sync.set(True)
+        self.is_upsampling = tk.BooleanVar()
+        self.is_upsampling.set(True)
+        self.is_keepfiles = tk.BooleanVar()
+        self.is_keepfiles.set(True)
         self.is_show_log = tk.BooleanVar()
 
-        self.ws_sync_button = tk.Checkbutton(self, text ='Sync Webcam and Screen', variable=self.is_ws_sync, onvalue=True, offvalue=False)
-        self.wp_sync_button = tk.Checkbutton(self, text ='Sync Webcam and POV', variable=self.is_wp_sync, onvalue=True, offvalue=False)
+        self.upsampling_button = tk.Checkbutton(self, text ='Upsampling screen video', variable=self.is_upsampling, onvalue=True, offvalue=False)
+        self.keepfiles_button = tk.Checkbutton(self, text ='Remain intermediate files', variable=self.is_keepfiles, onvalue=True, offvalue=False)
         self.show_log_button = tk.Checkbutton(self, text = 'Show log', variable=self.is_show_log, onvalue=True, offvalue=False)
         
-        self.ws_sync_button.place(x = 20, y = 210)
-        self.wp_sync_button.place(x = 20, y = 240)
+        self.upsampling_button.place(x = 20, y = 210)
+        self.keepfiles_button.place(x = 20, y = 240)
         self.show_log_button.place(x= 20, y=270)
 
         # Progress Bar
@@ -136,7 +163,7 @@ class App(tk.Tk):
 
         
     def open_file(self, file_type):
-        filename = filedialog.askopenfilename(initialdir = "/", title = "Select a File")
+        filename = filedialog.askopenfilename(title = "Select a File")
         disp_text = "... " + filename[-33:] if len(filename) >= 37 else filename
         if filename != "":
             if file_type == 'webcam':
@@ -144,6 +171,8 @@ class App(tk.Tk):
                 self.label_file_webcam.configure(text=disp_text)
             elif file_type == "screen":
                 self.screen = filename
+                dir_name, file_name, ext = split_path(filename)
+                self.audio = os.path.join(dir_name, file_name + ".mp3")
                 self.label_file_screen.configure(text=disp_text)
             elif file_type == "ego":
                 self.ego = filename
@@ -158,38 +187,33 @@ class App(tk.Tk):
 
 
     def check_condition(self):
-        warning = ""
+        warning = []
         res = True
-        if self.is_ws_sync.get():
-            if not (self.webcam and self.screen):
-                warning += "webcam, screen"
-                res = False
-        if self.is_wp_sync.get():
-            if not (self.webcam and self.ego):
-                if warning == "":
-                    warning += "webcam, egocentric (POV)"
-                else:
-                    warning += ", egocentric (POV)"
-                res = False
+        if not (self.webcam and self.screen and self.ego):
+            warning.append("Need all webcam, screen, and egocentric videos to run.")
+            res = False
+        
+        if self.audio and not os.path.isfile(self.audio):
+            warning.append("Screen audio file is not found.")
+            res = False
 
         return res, warning
 
         
     def click_sync(self):
         res, warning = self.check_condition()
+        
         if res:
-            if not (self.is_ws_sync.get() or self.is_wp_sync.get()):
-                # Need to choose sync mode
-                messagebox.showwarning("Warning", message="Choose sync mode!")
-            else:
-                # Run script
-                self.start_sync()
-                sync_thread = Sync(self.is_wp_sync.get(), self.is_ws_sync.get(), self.webcam, self.screen, self.ego)
-                sync_thread.start()
-                self.monitor(sync_thread)
+            # Disable button and run progress bar
+            self.start_sync()
+
+            # Create Sync thread and run it
+            sync_thread = Sync(self.is_upsampling.get(), self.is_keepfiles.get(), self.webcam, self.screen, self.audio, self.ego)
+            sync_thread.start()
+            self.monitor(sync_thread)
+
         else:
-            # Display warning
-            messagebox.showwarning("Warning", "No {} videos to run!".format(warning))
+            messagebox.showwarning(title = "Warning", message = "\n".join(warning))
 
 
     def start_sync(self):
@@ -199,12 +223,32 @@ class App(tk.Tk):
     def stop_sync(self):
         self.pbar.stop()
         self.control_button("normal")
+        global storage
 
-        global store_message
+        
+        # Delete intermediate files 
+        if not self.is_keepfiles.get():
+            for f in storage["inter_files"]:
+                if os.path.exists(f):
+                    os.remove(f)
+                else:
+                    print("DEBUG >>", f, "does not exist!")
+
         if self.is_show_log.get():
-            messagebox.showinfo(message="{}\n{}".format(store_message["message"], store_message["log"]))
-        else:
-            messagebox.showinfo(message=store_message["message"])
+            # Save log to file
+            pass
+
+        # messagebox.showinfo(message=storage["message"])
+
+        answer = messagebox.askokcancel(title="", message=storage["message"])
+
+        if answer:
+            # Open folder
+            if self.machine == "Windows":
+                os.startfile(storage["out"])
+            else:
+                subprocess.call(["open", storage["out"]])
+
     
     def monitor(self, sync_thread):
         if sync_thread.is_alive():
@@ -213,15 +257,7 @@ class App(tk.Tk):
             self.stop_sync()
 
 if __name__ == "__main__":
-    store_message = {"message": "", "log": ""}
-    # is_wp = True
-    # is_ws = False
-    # webcam = "./data/webcam.mp4"
-    # screen = "./data/screen.avi"
-    # ego = "./data/egocentric.MP4"
-    # sync = Sync(is_wp, is_ws, webcam, screen, ego)
-    # sync.run()
-    # print("DEBUG")
+    storage = {"message": "", "inter_files": [], "log": [], "out": ""}
     machine = platform.system()
     app = App(machine)
     app.mainloop()
