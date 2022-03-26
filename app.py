@@ -146,7 +146,7 @@ class App(tk.Tk):
         self.is_upsampling = tk.BooleanVar()
         self.is_upsampling.set(True)
         self.is_keepfiles = tk.BooleanVar()
-        self.is_keepfiles.set(True)
+        self.is_keepfiles.set(False)
         self.is_show_log = tk.BooleanVar()
 
         self.upsampling_button = tk.Checkbutton(self, text ='Upsampling screen video', variable=self.is_upsampling, onvalue=True, offvalue=False)

@@ -2,7 +2,7 @@
   "default": {
     "ws": {},
     "wp": {
-      "max_offset": 90,
+      "max_offset": 4,
       "trim": 0
     }
   },
@@ -10,7 +10,7 @@
   "config": {
     "ws": {},
     "wp": {
-      "max_offset": 90,
+      "max_offset": 4,
       "trim": 0
     }
   }

@@ -30,8 +30,6 @@ def gauss1d(n=21,sigma=1):
 #       The higher score, the more confidence the sync program is
 #       For statistically reliable, score should be at least 3 or higher
 
-
-import datetime
 def find_offset(file1, file2, trim, max_offset_in_seconds=60):
     fs = 22050 # audio sampling rate
     #hop_length = 512 # for mfcc
@@ -187,12 +185,11 @@ def extract_wav_file(afile, fs, trim):
 def create_sync_file(in_file, ss, duration):
     base_name = os.path.basename(in_file)
     dir_name = os.path.dirname(in_file)
-    file_name = os.path.splitext(base_name)[0]
-    file_ext = os.path.splitext(base_name)[1]
+    file_name, file_ext = os.path.splitext(base_name)
+    #file_ext = os.path.splitext(base_name)[1]
     out_file = "{}/{}_sync{}".format(dir_name, file_name, file_ext)
     print(out_file)
-    cmd = ' '.join(['ffmpeg' , '-ss', str(ss), '-i', in_file,  '-t', str(duration), '-map 0 -c:v copy', out_file])
-    #cmd = ' '.join(['ffmpeg', '-y', '-loglevel', 'panic', '-i', in_file, '-ss', str(ss), '-t', str(duration), '-c copy', out_file])
+    cmd = ' '.join(['ffmpeg', '-y', '-ss', str(ss), '-i', in_file,  '-t', str(duration), '-map 0 -c:v copy', out_file])
     print("   " + cmd)
     subprocess.call(cmd, shell=True)
     return out_file
@@ -207,46 +204,20 @@ def get_length(filename):
     return float(result.stdout)
 
 
-
-def wp_sync_call(new_webcam, egocentric, max_offset, trim):
-    print("DEBUG: >>>>>", new_webcam, egocentric)
+def sync(first_video, second_video, max_offset = 4, trim = 0):
 
     if trim == 0:
-        trim = 2*max_offset
+        trim = 10 * max_offset
 
-    offset, score, log = find_offset(new_webcam, egocentric, trim=trim, max_offset_in_seconds=max_offset)
+    offset, score, log = find_offset(first_video, second_video, trim=trim, max_offset_in_seconds=max_offset)
 
     if score < 3:
         log += "WARNING: Low sync score. Manually check the output files carefully.\n"
-        # print("============> WARNING: Low sync score. Manually check the output files carefully.")
 
-    len1 = get_length(new_webcam)
-    len2 = get_length(egocentric)
+    duration = get_length(first_video)
 
+    ss = 0 if offset > 0 else offset
 
-    '''
-    offset < 0, since egocentric video will starts earlier
-    '''
-    if offset > 0:
-        # print("new_webcam starts earlier than egocentric by {:0.3f} seconds. Sync score: {:0.2f}".format(offset, score))
-        ss1 = offset
-        ss2 = 0
-        duration = min(len2, len1 - offset)
-    else:
-        offset = -offset
-        # print("egocentric starts earlier than new_webcam by {:0.3f} seconds. Sync score: {:0.2f}".format(offset, score))
-        ss1 = 0
-        ss2 = offset
-        duration = min(len1, len2 - offset)
+    out_file = create_sync_file(second_video, ss, duration)
 
-    # print("   Shared duration: {}".format(duration))
-
-    # print("Create sync egocentric video ...")
-    start = time.time()
-
-    out_egocentric = create_sync_file(egocentric, ss2, duration)
-    # stop = time.time()
-    # #print("   File {} was created".format(out_new_webcam))
-    # print("   File {} was created".format(out_egocentric))
-    # print("   Done. This took {:0.2f}s".format(stop - start))
-    return out_egocentric, log
+    return out_file, log
