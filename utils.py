@@ -1,18 +1,9 @@
-"""
-Helper functions
-"""
-import json
-import os
-import cv2
-import subprocess
 from cv2 import split
-import ffmpeg
-
-def read_config(json_file):
-    with open(json_file, "r") as f:
-        config = json.load(f)
-
-    return config
+import lxml.etree
+import yaml
+import os
+import subprocess
+from typing import List
 
 def split_path(path):
     base_name = os.path.basename(path)
@@ -21,113 +12,72 @@ def split_path(path):
 
     return dir_name, file_name, ext
 
-def get_video_info(video_path):
-    cap = cv2.VideoCapture(video_path)
-    frame_num = cap.get(7)
-    fps = cap.get(5)
-    WIDTH = cap.get(3)
-    HEIGHT = cap.get(4)
+# Split OBS video into 3 videos using ffmpeg
+def split_obs_video(path: str) -> List[str]:
+    # Top left -> Screen
+    # Top right -> webcam
+    # Bottom left -> egocentric
+    # Bottom right -> Blank
+    # Expect a 4K video of 3 FullHD streams at 30fps
+    dir_name, _, _ = split_path(path)
 
-    return cap, frame_num, WIDTH, HEIGHT
+    crop_cmd = "[0]crop=w=1920:h=1080:x={}:y={}[{}]"
+    crop_cmds = [crop_cmd.format(0, 0, "topleft"),
+                crop_cmd.format(1920, 0, "topright"),
+                crop_cmd.format(0, 1080, "bottomleft")]
+    split_cmd = 'ffmpeg -y -i {} -filter_complex "{}" '.format(path, ";".join(crop_cmds))
+    print("DEBUG", split_cmd)
 
-def convert_to_30fps(video_path):
-    #Have to make all videos/audio/csv the same path
-    dir_name, file_name, ext = split_path(video_path)
-    new_file_name = file_name + "_30fps" + ext
-    output_path = os.path.join(dir_name, new_file_name)
+    screen = os.path.join(dir_name, "screen.mp4")
+    webcam = os.path.join(dir_name, "webcam.mp4")
+    ego = os.path.join(dir_name, "egocentric.mp4")
+    map_cmd = '-threads 5 -preset ultrafast -map "[topleft]" {} -map "[topright]" {} -map "[bottomleft]" {}'.format(screen, webcam, ego)
+    print("DEBUG", map_cmd)
+
+    cmd = split_cmd + map_cmd
+    print("DEBUG", cmd)
+
+    subprocess.call(cmd, shell=True)
+
+
+# Fuse with audio
+def merge_audio(video: str, audio: str) -> str: 
+
+    pass
+
+# Process GP3 data based on CPU ticks
+def process_gaze(csv_file: str, tick_file: str) -> str:
+
+    pass
+
+def parse(row, rmv_list = ['FPOGS', 'FPOGD', 'FPOGID', 'CS']):
+    row = lxml.etree.fromstring(row)
+    tag, attrib = row.tag, row.attrib
+    if tag == "REC":
+        for key in rmv_list:
+            try:
+                attrib.pop(key)
+            except:
+                pass
     
-    cmd = 'ffmpeg -y -i {} -qscale 0 -r 30 -y {}'.format(video_path, output_path)
-    subprocess.call(cmd, shell=True)
+    return attrib.values()
 
-    return output_path
+def read_config(path):
+    with open(path, "r") as f:
+        config = yaml.load(f, Loader=yaml.FullLoader)
+    
+    return config
 
-def combine_audio_video(video_path, audio_path):
-    #Assert the same name
-    output_path = video_path.replace(".avi", ".mp4")
+def write_config(data, path="config.yml"):
+    with open(path, "w") as f:
+        output = yaml.dump(data, f)
 
-    cmd = 'ffmpeg -y -i {} -i {} -c:v copy -c:a aac {}'.format(video_path, audio_path, output_path)
-    subprocess.call(cmd, shell=True)
+if __name__ == "__main__":
+    config = {"output": None, 
+            "OBS": {"host": "localhost", "port": 4444, "password": "sbu"},
+            "GP3": {"host": "localhost", "port": 4242},
+            "LearningModule": "127.0.0.1:8000"
+            }
 
-    return output_path
-
-def recover_GP3_webcam(screen_audio, gp3webcam_vid):
-    """
-    Recover fps of raw data from GP3 tracker.
-    """
-    cap = cv2.VideoCapture(gp3webcam_vid)
-    gpe_webcam_frames_num = cap.get(7)
-    time = get_duration(screen_audio)
-    new_fps = gpe_webcam_frames_num / time
-
-    dir_name, file_name, ext = split_path(gp3webcam_vid)
-    new_gp3webcam_path = os.path.join(dir_name, "re_" + file_name + ext)
-    print("DEBUG >>>>>", new_gp3webcam_path)
-    print(new_fps)
-    cmd = 'ffmpeg -y -i {} -filter:v "setpts=PTS/{},fps={}" {}'.format(gp3webcam_vid,
-                                                                    new_fps / 10,
-                                                                    new_fps,
-                                                                    new_gp3webcam_path)
-
-    subprocess.call(cmd, shell=True)
-
-    return new_gp3webcam_path
-
-def get_duration(path):
-    probe = ffmpeg.probe(path)
-    format = probe['format']
-    duration = float(format['duration'])
-
-    return duration
-
-def video_align(video, audio):
-    dir_name, file_name, ext = split_path(video)
-    output_path = os.path.join(dir_name, "align_" + file_name + ext)
-
-    video_duration = get_duration(video)
-    audio_duration = get_duration(audio)
-    speed = video_duration / audio_duration
-
-    cmd = 'ffmpeg -y -i {} -filter:v "setpts=PTS/{}" {}'.format(video, speed, output_path)
-    subprocess.call(cmd, shell=True)
-
-    return output_path
-
-def save_first_last_frame(video):
-    #Used to verify the time of the video
-    cap = cv2.VideoCapture(video)
-    numframes = int(cap.get(7))
-    cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-    _, frame = cap.read()
-    cv2.imwrite('First.jpg', frame)
-    cap.set(cv2.CAP_PROP_POS_FRAMES, numframes - 1)
-    _, frame = cap.read()
-    cv2.imwrite('Last.jpg', frame)
-
-
-'''
-screen_path = 'screen.avi'
-audio_path = 'screen.mp3'
-webcam_path = 'webcam.avi'
-get_video_info(screen_path)
-get_video_info(webcam_path)
-recover_GP3_webcam(screen_path, webcam_path)
-new_webcam_path = 're_webcam.avi'
-combine_audio_video(screen_path, audio_path)
-combine_audio_video(new_webcam_path, audio_path)
-new_webcam_path = 're_webcam.mp4'
-new_screen_path = 'screen.mp4'
-convert_to_30fps(new_webcam_path)
-convert_to_30fps(new_screen_path)
-#new_video = 'rwebcam.mp4'
-#convert_to_30fps(new_video)
-
-screenvid = 'screen.avi'
-webcamvid = 'webcam.avi'
-oriwebcamvid = 'rwebcam.avi'
-recover_GP3_webcam(screenvid, webcamvid)
-NEW_FPS = 13.184357541899443
-cmd = 'ffmpeg -i {} -filter:v "setpts=PTS/{},fps={}" {}'.format(webcamvid, NEW_FPS / 10, NEW_FPS,  oriwebcamvid)
-#subprocess.call(cmd)
-get_video_info(webcamvid)
-get_video_info(oriwebcamvid)
-'''
+    write_config(config)
+    # split_obs_video("obs.mp4")

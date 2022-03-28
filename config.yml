@@ -1,0 +1,9 @@
+GP3:
+  host: localhost
+  port: 4242
+LearningModule: 127.0.0.1:8000
+OBS:
+  host: localhost
+  password: sbu
+  port: 4444
+output: null
