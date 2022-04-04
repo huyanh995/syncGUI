@@ -35,7 +35,7 @@ class App(tk.Tk):
         self.path = None
 
         # Geometry
-        self.title("SBU Launcher")
+        self.title("Experiment Launcher")
         self.geometry("450x200") 
         self.resizable(False, False) 
         self.eval('tk::PlaceWindow . center')

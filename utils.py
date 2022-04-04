@@ -1,4 +1,3 @@
-from cv2 import split
 import lxml.etree
 import yaml
 import os
