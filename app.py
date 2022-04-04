@@ -1,19 +1,20 @@
 import os
 import shutil
 import time
+import subprocess
 import webbrowser
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox
 import platform
 import socket
 from queue import Queue
 import csv
 from threading import Thread
+import traceback
+import pandas as pd
 
 from utils import read_config, write_config, parse
 from control_OBS import OBS
-
-from numpy import disp
 
 class App(tk.Tk):
     def __init__(self, machine):
@@ -27,6 +28,11 @@ class App(tk.Tk):
         # GP3 threading variable
         self.gp3 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.gp3.settimeout(2.0)
+
+        self.gp3_is_connect = False # Each socket only have to connect once
+        self.obs_is_connect = False
+
+        self.path = None
 
         # Geometry
         self.title("SBU Launcher")
@@ -72,15 +78,15 @@ class App(tk.Tk):
         self.start_button = tk.Button(text="START RECORDING", command=self.click_start_recording)
         self.stop_button = tk.Button(text="STOP RECORDING", command=self.click_stop_recording, state=tk.DISABLED)
         if machine == "Windows":
-            self.start_button.place(x = 60, y = 150)
+            self.start_button.place(x = 85, y = 150)
             self.start_button["bg"] = "green"
-            self.start_button["width"] = 12
+            self.start_button["width"] = 15
             self.start_button["height"] = 2
             self.start_button["relief"] = tk.GROOVE
             
-            self.stop_button.place(x = 220, y = 150)
-            self.stop_button["bg"] = "red"
-            self.stop_button["width"] = 12
+            self.stop_button.place(x = 245, y = 150)
+            self.stop_button["bg"] = "gray"
+            self.stop_button["width"] = 15
             self.stop_button["height"] = 2
             self.stop_button["relief"] = tk.GROOVE
 
@@ -132,11 +138,12 @@ class App(tk.Tk):
         try:
             while True:
                 raw = self.gp3.recv(4096)
-                gp3_buffer.append(raw)
+                gp3_buffer.put(raw)
                 time.sleep(0.2) # Sleep to get more data
         
         except Exception as e:
             print(e)
+            print("Receive data", traceback.print_exc())
         
         print("Finished getting gazepoints")
 
@@ -144,33 +151,67 @@ class App(tk.Tk):
         # Pull data from global Queue 
         HEADER = ['TIME', 'TIME_TICK', 'FPOGX', 'FPOGY', 'FPOGV', 'CX', 'CY']
         global gp3_buffer
-        with open("gazepoints.csv", "w", encoding="UTF8", newline="") as f:
+        with open(os.path.join(self.path, "raw_gazepoints.csv"), "w", encoding="UTF8", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(HEADER)
-        try:
-            while True:
-                batch = gp3_buffer.get()
-                batch = batch.decode().split('\r\n')
-                for row in batch:
-                    if len(row) > 0 and "REC" in row:
-                        writer.writerow(parse(row))
-        
-        except Exception as e:
-            print(e)
+            try:
+                while True:
+                    batch = gp3_buffer.get(timeout=3.0) # If not getting an item in timeout -> raise error.
+                    print("DEBUG", gp3_buffer.qsize())
+                    batch = batch.decode().split('\r\n')
+                    for row in batch:
+                        if len(row) > 0 and "REC" in row:
+                            writer.writerow(parse(row))
+            
+            except Exception as e:
+                print("Process data", e)
+                print(traceback.print_exc())
 
         print("Finish writing file")
+
+    def postprocess(self, path):
+        # Make raw folder
+        new_path = os.path.join(path, "raw_data")
+        os.mkdir(new_path)
+        
+        # Postprocess gazepoints
+        gt = pd.read_csv(os.path.join(path, "raw_gazepoints.csv"))
+        # with open(os.path.join(path, "tick.txt"), "r") as f:
+        #     ticks = list(map(lambda x: int(x[:10]), f.read().split("\n")))
+            
+        gt = gt[(gt.TIME_TICK >= self.start_tick) & (gt.TIME_TICK <= self.end_tick)].drop(["TIME_TICK"], axis = 1)
+        gt.TIME -= gt.TIME.min()
+        gt.to_csv(os.path.join(path, "gazepoints.csv"), index=False, float_format='%.5f')
+        
+        # Convert mkv to mp4 
+        input_vid = os.path.join(path, "obs.mkv")
+        output_vid = os.path.join(path, "output.mp4")
+        cmd = "ffmpeg -i {} -codec copy {}".format(input_vid, output_vid)
+        
+        subprocess.run(cmd)
+    
+        # Move raw_gazepoints.csv and obs.mkv to raw folder
+        shutil.move(os.path.join(path, "raw_gazepoints.csv"), os.path.join(new_path, "raw_gazepoints.csv"))
+        shutil.move(os.path.join(path, "obs.mkv"), os.path.join(new_path, "obs.mkv"))
+
 
     def check_condition(self):
         mes = []
         # Check OBS connection
-        out = self.obs.connect()
-        if not out:
-            mes.append("Open OBS.")
+        if not self.obs_is_connect:
+            out = self.obs.connect()
+            if not out:
+                mes.append("Open OBS.")
+            else:
+                self.obs_is_connect = True
             
         # Check GP3 connection
-        out = self.gp3_connect()
-        if not out:
-            mes.append("Open Gazepoint Control")
+        if not self.gp3_is_connect:
+            out = self.gp3_connect()
+            if not out:
+                mes.append("Open Gazepoint Control")
+            else:
+                self.gp3_is_connect = True
 
         # Check User ID (Purdue ID)
         if not self.userID_entry.get():
@@ -192,9 +233,9 @@ class App(tk.Tk):
             return
     
         # Make new directory based on userID
-        path = os.path.join(self.output_dir, self.userID_entry.get())
-        os.mkdir(path)
-        out = self.OBS.setOutFolder(path)
+        self.path = os.path.join(self.output_dir, self.userID_entry.get())
+        os.mkdir(self.path)
+        out = self.obs.setOutFolder(self.path)
         if not out:
             messagebox.showwarning(title="Warning", message="Can not start recording. Contact SBU team!")
             self.control_field(True)
@@ -207,7 +248,7 @@ class App(tk.Tk):
         t1.start()
         t2.start()
         
-        
+        time.sleep(0.5) # Waiting a bit for GP3 to start. Gp3 must start before OBS recording.
         # Start OBS Recording
         out = self.obs.startRecording()
         self.first_tick = time.monotonic_ns()
@@ -221,12 +262,13 @@ class App(tk.Tk):
         webbrowser.open_new_tab(self.config["LearningModule"])
 
         # Set recording button to disabled 
-        self.start_button.configure(state=tk.DISABLED, text="RECORDING")
-        self.stop_button.configure(state=tk.NORMAL)
+        self.start_button.configure(state=tk.DISABLED, text="RECORDING", bg="gray")
+        self.stop_button.configure(state=tk.NORMAL, bg="red")
+
 
     def click_stop_recording(self):
         # Stop OBS Recording
-        out = self.OBS.stopRecording()
+        out = self.obs.stopRecording()
         self.last_tick = time.monotonic_ns()
         if not out:
             messagebox.showwarning(title="Warning", message="Can not stop recording. Do it manually and contact SBU team!")
@@ -240,15 +282,14 @@ class App(tk.Tk):
         # Save gazepoints into csv file
 
         # Save first/last tick to csv file
-        with open("tick.txt", "w") as f:
-            f.write(self.first_tick + "\n" + self.last_tick)
+        with open(os.path.join(self.path, "tick.txt"), "w") as f:
+            f.write("{}\n{}".format(self.first_tick, self.last_tick))
+
+        self.postprocess(self.path) # Postprocessing gazepoints.csv and obs.mkv
 
         self.control_field(True)
-        self.stop_button.configure(state=tk.DISABLED)
-        self.start_button.configure(state=tk.NORMAL, text="START RECORDING")
-
-    def monitor(self, threads):
-        pass
+        self.stop_button.configure(state=tk.DISABLED, bg="gray")
+        self.start_button.configure(state=tk.NORMAL, text="START RECORDING", bg="green")
 
 if __name__ == "__main__":
     machine = platform.system()
