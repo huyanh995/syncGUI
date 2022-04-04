@@ -90,6 +90,8 @@ class App(tk.Tk):
             self.stop_button["height"] = 2
             self.stop_button["relief"] = tk.GROOVE
 
+            self.output_button["relief"] = tk.GROOVE
+
         else:
             self.start_button.place(x = 60, y = 150)
             self.stop_button.place(x = 220, y = 150)            
@@ -157,7 +159,6 @@ class App(tk.Tk):
             try:
                 while True:
                     batch = gp3_buffer.get(timeout=3.0) # If not getting an item in timeout -> raise error.
-                    print("DEBUG", gp3_buffer.qsize())
                     batch = batch.decode().split('\r\n')
                     for row in batch:
                         if len(row) > 0 and "REC" in row:
@@ -169,30 +170,28 @@ class App(tk.Tk):
 
         print("Finish writing file")
 
+
     def postprocess(self, path):
         # Make raw folder
         new_path = os.path.join(path, "raw_data")
         os.mkdir(new_path)
-        
-        # Postprocess gazepoints
-        gt = pd.read_csv(os.path.join(path, "raw_gazepoints.csv"))
-        # with open(os.path.join(path, "tick.txt"), "r") as f:
-        #     ticks = list(map(lambda x: int(x[:10]), f.read().split("\n")))
-            
-        gt = gt[(gt.TIME_TICK >= self.start_tick) & (gt.TIME_TICK <= self.end_tick)].drop(["TIME_TICK"], axis = 1)
-        gt.TIME -= gt.TIME.min()
-        gt.to_csv(os.path.join(path, "gazepoints.csv"), index=False, float_format='%.5f')
-        
+
         # Convert mkv to mp4 
         input_vid = os.path.join(path, "obs.mkv")
         output_vid = os.path.join(path, "output.mp4")
         cmd = "ffmpeg -i {} -codec copy {}".format(input_vid, output_vid)
-        
         subprocess.run(cmd)
-    
+
+        # Postprocess gazepoints
+        gt = pd.read_csv(os.path.join(path, "raw_gazepoints.csv"))
+        gt = gt[(gt.TIME_TICK >= int(str(self.first_tick)[:11])) & (gt.TIME_TICK <= int(str(self.last_tick)[:11]))].drop(["TIME_TICK"], axis = 1)
+        gt.TIME -= gt.TIME.min()
+        gt.to_csv(os.path.join(path, "gazepoints.csv"), index=False, float_format='%.5f')
+        
         # Move raw_gazepoints.csv and obs.mkv to raw folder
         shutil.move(os.path.join(path, "raw_gazepoints.csv"), os.path.join(new_path, "raw_gazepoints.csv"))
         shutil.move(os.path.join(path, "obs.mkv"), os.path.join(new_path, "obs.mkv"))
+        shutil.move(os.path.join(path, "tick.txt"), os.path.join(new_path, "tick.txt"))
 
 
     def check_condition(self):
@@ -264,6 +263,7 @@ class App(tk.Tk):
         # Set recording button to disabled 
         self.start_button.configure(state=tk.DISABLED, text="RECORDING", bg="gray")
         self.stop_button.configure(state=tk.NORMAL, bg="red")
+        self.userID_entry.configure(state=tk.DISABLED)
 
 
     def click_stop_recording(self):
@@ -277,19 +277,17 @@ class App(tk.Tk):
         # Disable GP3 send data
         self.gp3_stop_streaming()
 
-        # Pull data until end
-
-        # Save gazepoints into csv file
+        self.control_field(True)
+        self.stop_button.configure(state=tk.DISABLED, bg="gray")
+        self.start_button.configure(state=tk.NORMAL, text="START RECORDING", bg="green")
+        self.userID_entry.configure(state=tk.NORMAL)
 
         # Save first/last tick to csv file
         with open(os.path.join(self.path, "tick.txt"), "w") as f:
             f.write("{}\n{}".format(self.first_tick, self.last_tick))
 
+        time.sleep(5.0) # Wait for CSV Writer finish the job
         self.postprocess(self.path) # Postprocessing gazepoints.csv and obs.mkv
-
-        self.control_field(True)
-        self.stop_button.configure(state=tk.DISABLED, bg="gray")
-        self.start_button.configure(state=tk.NORMAL, text="START RECORDING", bg="green")
 
 if __name__ == "__main__":
     machine = platform.system()
