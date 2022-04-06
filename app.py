@@ -12,6 +12,7 @@ import csv
 from threading import Thread
 import traceback
 import pandas as pd
+from pynput.keyboard import Key, Controller
 
 from utils import read_config, write_config, parse
 from control_OBS import OBS
@@ -33,6 +34,7 @@ class App(tk.Tk):
         self.obs_is_connect = False
 
         self.path = None
+        self.keyboard = Controller()
 
         # Geometry
         self.title("Experiment Launcher")
@@ -184,8 +186,11 @@ class App(tk.Tk):
 
         # Postprocess gazepoints
         gt = pd.read_csv(os.path.join(path, "raw_gazepoints.csv"))
-        gt = gt[(gt.TIME_TICK >= int(str(self.first_tick)[:11])) & (gt.TIME_TICK <= int(str(self.last_tick)[:11]))].drop(["TIME_TICK"], axis = 1)
+        print(self.first_tick, self.last_tick)
+        print(gt.head())
+        gt = gt[(gt.TIME_TICK >= self.first_tick/100) & (gt.TIME_TICK <= self.last_tick/100)].drop(["TIME_TICK"], axis = 1)
         gt.TIME -= gt.TIME.min()
+        print(gt.head())
         gt.to_csv(os.path.join(path, "gazepoints.csv"), index=False, float_format='%.5f')
         
         # Move raw_gazepoints.csv and obs.mkv to raw folder
@@ -223,6 +228,25 @@ class App(tk.Tk):
 
         return len(mes) == 0, mes
 
+    def start_simulate(self):
+        self.keyboard.press(Key.ctrl)
+        self.keyboard.press(Key.alt)
+        self.keyboard.press("r")
+
+        self.keyboard.release("r")
+        self.keyboard.release(Key.alt)
+        self.keyboard.release(Key.ctrl)
+
+    def stop_simulate(self):
+        self.keyboard.press(Key.ctrl)
+        self.keyboard.press(Key.alt)
+        self.keyboard.press("s")
+
+        self.keyboard.release("s")
+        self.keyboard.release(Key.alt)
+        self.keyboard.release(Key.ctrl)
+
+
     def click_start_recording(self):
         # Check condition and start OBS, GP3 connections
         out, mes = self.check_condition()
@@ -247,10 +271,11 @@ class App(tk.Tk):
         t1.start()
         t2.start()
         
-        time.sleep(0.5) # Waiting a bit for GP3 to start. Gp3 must start before OBS recording.
+        time.sleep(5) # Waiting a bit for GP3 to start. Gp3 must start before OBS recording.
         # Start OBS Recording
         out = self.obs.startRecording()
         self.first_tick = time.monotonic_ns()
+        # self.start_simulate()
 
         if not out:
             messagebox.showwarning(title="Warning", message="Can not start recording. Contact SBU team!")
@@ -258,7 +283,7 @@ class App(tk.Tk):
             return
         
         # Open Learning Material Website
-        webbrowser.open_new_tab(self.config["LearningModule"])
+        #webbrowser.open_new_tab(self.config["LearningModule"])
 
         # Set recording button to disabled 
         self.start_button.configure(state=tk.DISABLED, text="RECORDING", bg="gray")
@@ -268,14 +293,16 @@ class App(tk.Tk):
 
     def click_stop_recording(self):
         # Stop OBS Recording
+        
         out = self.obs.stopRecording()
         self.last_tick = time.monotonic_ns()
         if not out:
             messagebox.showwarning(title="Warning", message="Can not stop recording. Do it manually and contact SBU team!")
             self.control_field(True)
-
+        time.sleep(5.0)
         # Disable GP3 send data
         self.gp3_stop_streaming()
+        # self.stop_simulate()
 
         self.control_field(True)
         self.stop_button.configure(state=tk.DISABLED, bg="gray")
