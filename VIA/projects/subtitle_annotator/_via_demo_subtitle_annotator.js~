@@ -1,0 +1,104 @@
+/**
+ *
+ * @class
+ * @classdesc Demo of subtitle annotator
+ * @author Abhishek Dutta <adutta@robots.ox.ac.uk>
+ * @date 09 October 2020
+ *
+ * Video 1
+ * Video source: https://commons.wikimedia.org/wiki/File:NASA-_60_Years_in_60_Seconds.webm
+ */
+
+function _via_load_submodules() {
+  console.log('Loading subtitle annotator demo');
+  _via_demo_project = { 'store':{} };
+  _via_demo_project['store'] = {};
+  _via_demo_project['store']['project'] = {
+    'pid': '__VIA_PROJECT_ID__',
+    'rev': '__VIA_PROJECT_REV_ID__',
+    'rev_timestamp': '__VIA_PROJECT_REV_TIMESTAMP__',
+    'pname': 'Demo Subtitle Annotation',
+    'pdesc': 'Demo of subtitle annotator using public domain video taken from https://commons.wikimedia.org/wiki/File:NASA-_60_Years_in_60_Seconds.webm',
+    'creator': 'VGG Image Annotator (http://www.robots.ox.ac.uk/~vgg/software/via)',
+    'created': Date.now(),
+    'data_format_version': '3.1.2',
+    'vid_list':['1'],
+  };
+  _via_demo_project['store']['config'] = {
+    'file': {
+      'loc_prefix': { '1':'', '2':'', '3':'', '4':'' }, // constants defined in _via_file._VIA_FILE_LOC
+    },
+    'ui': {
+      'file_content_align':'center'
+    }
+  };
+  _via_demo_project['store']['attribute'] = {
+    '1': {
+      'aname':'subtitle',
+      'anchor_id':'FILE1_Z2_XY0',
+      'type':1,
+      'desc':'Subtitle text',
+      'options':{},
+      'default_option_id':'',
+    },
+  };
+  _via_demo_project['store']['file'] = {
+    '1':{
+      'fid':1,
+      'fname':_via_demo_data['subtitle'][0]['filename'],
+      'type':2,
+      'loc':4,
+      'src':_via_demo_data['subtitle'][0]['src'],
+    },
+  };
+
+  _via_demo_project['store']['view'] = {
+    '1': {
+      'fid_list':[1],
+    },
+  };
+
+  _via_demo_project['store']['metadata'] = {
+    '1-glfwaaX': {
+      'vid': '1',
+      'flg': 0,
+      'z': [],
+      'xy': [2, 101, 125, 286, 146],
+      'av': {
+        '1':'Swan',
+        '2':'A white swan in Geneva lake.',
+      }
+    },
+    '2_WIpRNLvX': {
+      'vid': '2',
+      'flg': 0,
+      'z': [],
+      'xy': [2, 378.921,121.113,84.991,234.435],
+      'av': {
+        '1':'Socrates',
+        '2':'Death of Socrates painting by David.',
+      }
+    },
+    '2_eA5CqEPf': {
+      'vid': '2',
+      'flg': 0,
+      'z': [],
+      'xy': [2, 198.314,150.152,109.072,238.684],
+      'av': {
+        '1':'Plato',
+      }
+    },
+  };
+
+  this.d.store = _via_demo_project['store'];
+  this.d._cache_update();
+  this.vm._init();
+
+  setTimeout( function() {
+    this.va.view_show('1');
+    if ( this.s ) {
+      this.s._disable_share();
+    }
+    //this.editor.show();
+  }.bind(this), 500);
+}
