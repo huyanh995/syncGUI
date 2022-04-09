@@ -2,17 +2,19 @@ import os
 import shutil
 import time
 import subprocess
-import webbrowser
+import logging
 import tkinter as tk
 from tkinter import filedialog, messagebox
-import platform
-import socket
-from queue import Queue
+from queue import Queue, Empty
 import csv
 from threading import Thread
 import traceback
+from datetime import datetime
+
+import platform
+import socket
+import webbrowser
 import pandas as pd
-from pynput.keyboard import Key, Controller
 
 from utils import read_config, write_config, parse
 from control_OBS import OBS
@@ -20,25 +22,26 @@ from control_OBS import OBS
 class App(tk.Tk):
     def __init__(self, machine):
         super().__init__()
-        
         self.config = read_config("config.yml")
+        self.path = None
+
+        # Logging system
+        self.logger = None # For logging, init when start recording.
+
         # OBS Init
         self.obs = OBS(self.config["OBS"])
         self.first_tick = None
         self.last_tick = None
+        self.obs_is_connect = False
+
         # GP3 threading variable
         self.gp3 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.gp3.settimeout(2.0)
-
         self.gp3_is_connect = False # Each socket only have to connect once
-        self.obs_is_connect = False
-
-        self.path = None
-        self.keyboard = Controller()
-
+        
         # Geometry
         self.title("Experiment Launcher")
-        self.geometry("450x200") 
+        self.geometry("450x210") 
         self.resizable(False, False) 
         self.eval('tk::PlaceWindow . center')
         self.machine = machine
@@ -50,25 +53,11 @@ class App(tk.Tk):
             self.output_dir = self.config["output"]
 
         # Label
-        
-        #self.userID = tk.StringVar(value="E.g 123456") # Text var
         self.userID_label = tk.Label(self, text="Pilot ID")
         self.userID_entry = tk.Entry(self, width=33)
 
-        # self.userName = tk.StringVar(value="E.g John Smith")
-        # self.userName_label = tk.Label(self, text="Name")
-        # self.userName_entry = tk.Entry(self, width=33)
-
-        # self.userEmail = tk.StringVar(value="E.g abc@xyz.com")
-        # self.userEmail_label = tk.Label(self, text="Email")
-        # self.userEmail_entry = tk.Entry(self, width=33)
-
         self.userID_label.place(x = 20,y = 20)
         self.userID_entry.place(x = 100,y = 20)
-        # self.userName_label.place(x = 20,y = 60)
-        # self.userName_entry.place(x = 100,y = 60)
-        # self.userEmail_label.place(x = 20,y = 100)
-        # self.userEmail_entry.place(x = 100,y = 100)
 
         self.output_label = tk.Label(self, text="Default output directory")
         self.output_dir_label = tk.Label(self, text=self.output_dir)
@@ -93,10 +82,22 @@ class App(tk.Tk):
             self.stop_button["relief"] = tk.GROOVE
 
             self.output_button["relief"] = tk.GROOVE
-
         else:
             self.start_button.place(x = 60, y = 150)
             self.stop_button.place(x = 220, y = 150)            
+
+    def create_logger(self):
+        # Config logger
+        formatter = logging.Formatter("%(asctime)s:%(levelname)s:%(funcName)s:%(message)s")
+        log_file = os.path.join(self.path, '{}.log'.format(datetime.now().strftime("%Y_%m_%d-%I_%M_%S_%p")))
+        file_handler = logging.FileHandler(log_file)
+        file_handler.setLevel(logging.INFO)
+        file_handler.setFormatter(formatter)
+
+        # Setup and assign logger to class
+        self.logger = logging.getLogger(__name__)
+        self.logger.setLevel(logging.INFO)
+        self.logger.addHandler(file_handler)
 
     def choose_output(self):
         # Choose output directory
@@ -113,17 +114,18 @@ class App(tk.Tk):
         state = tk.NORMAL if enable else tk.DISABLED
 
         self.userID_entry.configure(state=state)
-        # self.userName_entry.configure(state=state)
-        # self.userEmail_entry.configure(state=state)
         self.output_button.configure(state=state)
-        # self.start_button.configure(state=state)
-        # self.stop_button.configure(state=state)
 
     def gp3_connect(self):
         try:
             self.gp3.connect((self.config["GP3"]["host"], self.config["GP3"]["port"]))
             return True
+        except TimeoutError as e:
+            self.logger.warning("Timeout when connecting to GP3")
+            return False
         except Exception as e:
+            # If any unexpected exceptions raised
+            self.logger.exception("Unexpected exception in gp3_connect")
             return False
     
     def gp3_start_streaming(self):
@@ -143,13 +145,14 @@ class App(tk.Tk):
             while True:
                 raw = self.gp3.recv(4096)
                 gp3_buffer.put(raw)
-                time.sleep(0.2) # Sleep to get more data
+                time.sleep(0.2) # Sleep to wait more data
         
+        except socket.timeout as e:
+            self.logger.info("Finished getting gazepoints")
+
         except Exception as e:
-            print(e)
-            print("Receive data", traceback.print_exc())
-        
-        print("Finished getting gazepoints")
+            self.log.exception("Unexpected exception in gp3_stop_streaming")
+
 
     def gp3_process_data(self):
         # Pull data from global Queue 
@@ -160,38 +163,38 @@ class App(tk.Tk):
             writer.writerow(HEADER)
             try:
                 while True:
-                    batch = gp3_buffer.get(timeout=3.0) # If not getting an item in timeout -> raise error.
+                    batch = gp3_buffer.get(timeout=1.5) # If not getting an item in timeout -> raise error.
                     batch = batch.decode().split('\r\n')
                     for row in batch:
                         if len(row) > 0 and "REC" in row:
                             writer.writerow(parse(row))
             
-            except Exception as e:
-                print("Process data", e)
-                print(traceback.print_exc())
+            except Empty as e:
+                self.logger.info("Finished writing file")
 
-        print("Finish writing file")
+            except Exception as e:
+                self.logger.exception("Unexpected exception in gp3_process_data")
 
 
     def postprocess(self, path):
         # Make raw folder
         new_path = os.path.join(path, "raw_data")
         os.mkdir(new_path)
+        self.logger.info("Done making raw_data directory.")
 
         # Convert mkv to mp4 
         input_vid = os.path.join(path, "obs.mkv")
         output_vid = os.path.join(path, "output.mp4")
         cmd = "ffmpeg -i {} -codec copy {}".format(input_vid, output_vid)
         subprocess.run(cmd)
+        self.logger.info("Done convert to mp4. Cmd {}".format(cmd))
 
         # Postprocess gazepoints
         gt = pd.read_csv(os.path.join(path, "raw_gazepoints.csv"))
-        print(self.first_tick, self.last_tick)
-        print(gt.head())
         gt = gt[(gt.TIME_TICK >= self.first_tick/100) & (gt.TIME_TICK <= self.last_tick/100)].drop(["TIME_TICK"], axis = 1)
         gt.TIME -= gt.TIME.min()
-        print(gt.head())
         gt.to_csv(os.path.join(path, "gazepoints.csv"), index=False, float_format='%.5f')
+        self.logger.info("Done post processing gazepoints csv file, start tick {}, end tick {}".format(self.first_tick/100, self.last_tick/100))
         
         # Move raw_gazepoints.csv and obs.mkv to raw folder
         shutil.move(os.path.join(path, "raw_gazepoints.csv"), os.path.join(new_path, "raw_gazepoints.csv"))
@@ -228,26 +231,8 @@ class App(tk.Tk):
 
         return len(mes) == 0, mes
 
-    def start_simulate(self):
-        self.keyboard.press(Key.ctrl)
-        self.keyboard.press(Key.alt)
-        self.keyboard.press("r")
-
-        self.keyboard.release("r")
-        self.keyboard.release(Key.alt)
-        self.keyboard.release(Key.ctrl)
-
-    def stop_simulate(self):
-        self.keyboard.press(Key.ctrl)
-        self.keyboard.press(Key.alt)
-        self.keyboard.press("s")
-
-        self.keyboard.release("s")
-        self.keyboard.release(Key.alt)
-        self.keyboard.release(Key.ctrl)
-
-
     def click_start_recording(self):
+
         # Check condition and start OBS, GP3 connections
         out, mes = self.check_condition()
         if not out:
@@ -258,6 +243,12 @@ class App(tk.Tk):
         # Make new directory based on userID
         self.path = os.path.join(self.output_dir, self.userID_entry.get())
         os.mkdir(self.path)
+
+        # Create logger
+        self.create_logger()
+        self.obs.set_logger(self.logger)
+
+        # Config OBS output to pilot ID path
         out = self.obs.setOutFolder(self.path)
         if not out:
             messagebox.showwarning(title="Warning", message="Can not start recording. Contact SBU team!")
@@ -271,11 +262,10 @@ class App(tk.Tk):
         t1.start()
         t2.start()
         
-        time.sleep(5) # Waiting a bit for GP3 to start. Gp3 must start before OBS recording.
+        time.sleep(2.0) # Waiting a bit for GP3 to start. Gp3 must start before OBS recording.
         # Start OBS Recording
         out = self.obs.startRecording()
         self.first_tick = time.monotonic_ns()
-        # self.start_simulate()
 
         if not out:
             messagebox.showwarning(title="Warning", message="Can not start recording. Contact SBU team!")
@@ -292,17 +282,18 @@ class App(tk.Tk):
 
 
     def click_stop_recording(self):
-        # Stop OBS Recording
         
+        # Stop OBS Recording
         out = self.obs.stopRecording()
         self.last_tick = time.monotonic_ns()
         if not out:
             messagebox.showwarning(title="Warning", message="Can not stop recording. Do it manually and contact SBU team!")
             self.control_field(True)
-        time.sleep(5.0)
+
+        time.sleep(2.0) # Wait awhile before stop GP3.
+
         # Disable GP3 send data
         self.gp3_stop_streaming()
-        # self.stop_simulate()
 
         self.control_field(True)
         self.stop_button.configure(state=tk.DISABLED, bg="gray")
@@ -313,8 +304,11 @@ class App(tk.Tk):
         with open(os.path.join(self.path, "tick.txt"), "w") as f:
             f.write("{}\n{}".format(self.first_tick, self.last_tick))
 
-        time.sleep(5.0) # Wait for CSV Writer finish the job
+        time.sleep(2.5) # Wait for CSV Writer finish the job
+
         self.postprocess(self.path) # Postprocessing gazepoints.csv and obs.mkv
+
+        self.logger = None # Avoid uncontrolled log
 
 if __name__ == "__main__":
     machine = platform.system()
