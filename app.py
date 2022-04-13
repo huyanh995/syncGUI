@@ -9,6 +9,7 @@ import platform
 import socket
 from queue import Queue
 import csv
+import cv2
 from threading import Thread
 import traceback
 import pandas as pd
@@ -174,29 +175,62 @@ class App(tk.Tk):
 
 
     def postprocess(self, path):
-        # Make raw folder
         new_path = os.path.join(path, "raw_data")
         os.mkdir(new_path)
 
+        
+
+        # Postprocess gazepoints
+        gt = pd.read_csv(os.path.join(path, "raw_gazepoints.csv"))
+        gp3_start_tick, gp3_end_tick  = gt.TIME_TICK.values[0], gt.TIME_TICK.values[-1]
+        print(gt.head())
+        gt = gt[(gt.TIME_TICK >= self.first_tick/100) & (gt.TIME_TICK <= self.last_tick/100)].drop(["TIME_TICK"], axis = 1).reset_index(drop=True)
+        gt.TIME -= gt.TIME.min()
+        print(gt.head())
+        
+
+
+        tracker_freq =  gt.index.to_series().div(gt.TIME).mean()
+
+        print("Tracker Mean Frequency:",tracker_freq)
         # Convert mkv to mp4 
         input_vid = os.path.join(path, "obs.mkv")
         output_vid = os.path.join(path, "output.mp4")
         cmd = "ffmpeg -i {} -codec copy {}".format(input_vid, output_vid)
         subprocess.run(cmd)
+        cap = cv2.VideoCapture(output_vid)
+        VideoFrameCount = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        GazePointsCount = len(gt)
+        print("Video Frame Count:",VideoFrameCount)
+        print("Gaze Points Count:",GazePointsCount)
+        ExtraPoints = GazePointsCount-VideoFrameCount
+        print("Extra Points:",ExtraPoints)
+        print("Video start and end",self.first_tick//100, self.last_tick//100)
+        print("GP3 start and end", gp3_start_tick, gp3_end_tick)
+        if self.first_tick//100 >= gp3_start_tick & self.last_tick//100 <= gp3_end_tick:
+            if  ExtraPoints >= 0:
+                gt = gt[ExtraPoints//2:]
+                gt = gt[:-ExtraPoints//2]
+                if ExtraPoints % 2 == 1:
+                    gt = gt[1:]
+                    
+                gt.TIME -= gt.TIME.min()
+                print("Removed all extra, Gaze Points Count:", len(gt))
+            else:
+                print("GP3 is frequency is too low, You data is not invalid in this case")
+        else:
+            if self.first_tick//100 < gp3_start_tick:
+                print("GP3 starting later")
+            if self.last_tick//100 > gp3_end_tick:
+                print("GP3 ending early")
 
-        # Postprocess gazepoints
-        gt = pd.read_csv(os.path.join(path, "raw_gazepoints.csv"))
-        print(self.first_tick, self.last_tick)
-        print(gt.head())
-        gt = gt[(gt.TIME_TICK >= self.first_tick/100) & (gt.TIME_TICK <= self.last_tick/100)].drop(["TIME_TICK"], axis = 1)
-        gt.TIME -= gt.TIME.min()
-        print(gt.head())
         gt.to_csv(os.path.join(path, "gazepoints.csv"), index=False, float_format='%.5f')
-        
-        # Move raw_gazepoints.csv and obs.mkv to raw folder
+
+
         shutil.move(os.path.join(path, "raw_gazepoints.csv"), os.path.join(new_path, "raw_gazepoints.csv"))
         shutil.move(os.path.join(path, "obs.mkv"), os.path.join(new_path, "obs.mkv"))
         shutil.move(os.path.join(path, "tick.txt"), os.path.join(new_path, "tick.txt"))
+
 
 
     def check_condition(self):
@@ -271,10 +305,11 @@ class App(tk.Tk):
         t1.start()
         t2.start()
         
-        time.sleep(5) # Waiting a bit for GP3 to start. Gp3 must start before OBS recording.
+        time.sleep(10) # Waiting a bit for GP3 to start. Gp3 must start before OBS recording.
         # Start OBS Recording
-        out = self.obs.startRecording()
+        print("Start")
         self.first_tick = time.monotonic_ns()
+        out = self.obs.startRecording()
         # self.start_simulate()
 
         if not out:
