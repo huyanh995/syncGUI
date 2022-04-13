@@ -210,7 +210,7 @@ class App(tk.Tk):
         if self.first_tick//100 >= gp3_start_tick & self.last_tick//100 <= gp3_end_tick:
             if  ExtraPoints >= 0:
                 gt = gt[ExtraPoints//2:]
-                gt = gt[:-ExtraPoints//2]
+                gt = gt[:-(ExtraPoints//2)]
                 if ExtraPoints % 2 == 1:
                     gt = gt[1:]
                     
