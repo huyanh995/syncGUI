@@ -6,4 +6,6 @@ OBS:
   host: localhost
   password: sbu
   port: 4444
-output: null
+output: /Users/huyanh/Downloads
+calibration: True
+preciseMatching: False
