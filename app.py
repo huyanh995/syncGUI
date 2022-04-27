@@ -124,8 +124,8 @@ class App(tk.Tk):
         self.is_calibration.set(self.config["calibration"])
         self.calibration_checkbutton = tk.Checkbutton(self, text = "Force calibration", variable = self.is_calibration, onvalue = True, offvalue = False)
         self.calibration_checkbutton.place(x = 20, y = 65)
-        self.calibrate_button = tk.Button(text="Calibrate", width = 6, command=self.start_calibration)
-        self.calibrate_button.place(x = 320, y = 65)
+        # self.calibrate_button = tk.Button(text="Calibrate", width = 6, command=self.start_calibration)
+        # self.calibrate_button.place(x = 320, y = 65)
 
         # self.is_precise_matching = tk.BooleanVar()
         # self.is_precise_matching.set(self.config["preciseMatching"])
